@@ -1,8 +1,10 @@
 import xlrd
-import json
+import pandas as pd
+
+# Extraindo dados de um arquivo .xls
 
 # Caminho do arquivo
-arquivo_xls = r"C:\Users\gusta\PycharmProjects\PythonProject\1° ANO - T.xls"
+arquivo_xls = r"C:\Users\gusta\PycharmProjects\ETL_Excel\1° ANO - T.xls"
 
 # Abrir o arquivo .xls
 workbook = xlrd.open_workbook(arquivo_xls)
@@ -51,13 +53,25 @@ for row_idx in range(sheet.nrows):
 
 
         studant_dict.get(studant).update({key: studant_data})
+
+
     
+# Manipulando os dados
+
+# Converter o dicionário em um DataFrame
+df = pd.DataFrame.from_dict(studant_dict, orient='index')
+
+# Removendo colunas indesejadas
+colunas_para_remover = ['ÁREAS DE','RB','LEGENDA','CONHECIMENTO']
+df = df.drop(columns=colunas_para_remover)
+
+# Exibir o DataFrame atualizado
+print(df.columns)
+print(df.head(100))
 
 
+# Salvar o DataFrame como JSON
 arquivo_json = arquivo_xls.replace(".xls", ".json")
-
-# Salvar o dicionário como JSON
-with open(arquivo_json, 'w', encoding='utf-8') as jsonfile:
-    json.dump(studant_dict, jsonfile, ensure_ascii=False, indent=4)
+df.to_json(arquivo_json, orient='index', force_ascii=False, indent=4)
 
 print(f"Arquivo JSON criado em: {arquivo_json}")
