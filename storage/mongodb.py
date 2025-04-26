@@ -1,5 +1,5 @@
 from pymongo import MongoClient
-from storage.mongo_keys import *
+from storage.db_keys import connection_string, database_name, collection_name
 
 
 def send_to_mongo(df):
