@@ -2,6 +2,7 @@ import xlrd
 import pandas as pd
 import os
 from storage.mysql import send_to_mysql
+import unicodedata
 
 
 class ExtractData:
@@ -73,121 +74,137 @@ class ExtractData:
         return key, studant_key
 
 
+    def remove_accentuation(self, string):
+        normalize_string = unicodedata.normalize('NFKD', string)
+        return ''.join([c for c in normalize_string if not unicodedata.combining(c)])
+
     def normalize_data(self, df):
-                """Normaliza os dados do DataFrame para um formato relacional."""
+        """Normaliza os dados do DataFrame para um formato relacional."""
 
-                # Garantir que os nomes das colunas estejam corretos
-                df.columns = [col.strip() for col in df.columns]  # Remove espaços extras
+        # Garantir que os nomes das colunas estejam corretos
+        df.columns = [col.strip() for col in df.columns]  # Remove espaços extras
 
-                # Identificar colunas de escolaridade dinamicamente
-                shift_columns = [col for col in df.columns if
-                                        "Ano de Escolaridade" in col or "PRÉ" in col or 'Pré' in col]
+        # Identificar colunas de escolaridade dinamicamente
+        shift_columns = [col for col in df.columns if
+                                "Ano de Escolaridade" in col or "PRÉ" in col or 'Pré' in col]
 
-                disciplines_id = {
-                    "Língua Portuguesa": 1,
-                    "Artes": 2,
-                    "Ciências": 3,
-                    "Matemática": 4,
-                    "Geografia": 5,
-                    "História": 6,
-                    "Cidadania/Ética": 7,
-                    "Inglês": 8,
-                    "MATEMÁTICA": 4,
-                    "HIST. e GEOGR.": 9,
-                    "CIÊNCIAS": 3,
-                    "PORTUGUÊS": 1
-                }
+        disciplines_id = {
+            "Língua Portuguesa": 1,
+            "Artes": 2,
+            "Ciências": 3,
+            "Matemática": 4,
+            "Geografia": 5,
+            "História": 6,
+            "Cidadania/Ética": 7,
+            "Inglês": 8,
+            "MATEMÁTICA": 4,
+            "HIST. e GEOGR.": 9,
+            "CIÊNCIAS": 3,
+            "PORTUGUÊS": 1
+        }
 
-                if not shift_columns:
-                    raise KeyError("Nenhuma coluna de escolaridade encontrada no DataFrame.")
+        if not shift_columns:
+            raise KeyError("Nenhuma coluna de escolaridade encontrada no DataFrame.")
 
-                # Tabela de alunos
-                students = []
-                for student in df.index:
-                    for col in shift_columns:
-                        if col in df.columns:
-                            value = df.loc[student, col]
-                            if isinstance(value, (list, tuple)) and len(value) == 2:
-                                grade_level, shift = value
-                            else:
-                                grade_level, shift = value, None  # Caso não seja iterável, atribua `None` ao turno
-                            students.append({
-                                "aluno_id": hash(student),  # Gerar um ID único
-                                "nome": student.replace("Aluno(a):", "").strip(),
-                                "nivel_escolar": col,
-                                "turno": shift.replace("Turno:", "").strip() if shift else None
-                            })
+        # Tabela de alunos
+        students = []
+        for student in df.index:
+            for col in shift_columns:
+                if col in df.columns:
+                    value = df.loc[student, col]
+                    if isinstance(value, (list, tuple)) and len(value) == 2:
+                        grade_level, shift = value
+                    else:
+                        grade_level, shift = value, None  # Caso não seja iterável, atribua `None` ao turno
+
+                    # Todo: Change this Later
+                    if col == "6° Ano de Escolaridade - 601" or "6° Ano de Escolaridade - 602":
+                        shift = "Manhã"
+                    students.append({
+                        "aluno_id": hash(student),  # Gerar um ID único
+                        "nome": student.replace("Aluno(a):", "").strip(),
+                        "nivel_escolar": col,
+                        "turno": shift.replace("Turno:", "").strip() if shift else None
+                    })
 
 
+        # Tabela de disciplinas
+        disciplines = list()
+        for d in self.disciplines_columns:
+            if d in df.columns:
+                if d == "Língua Portuguesa":
+                    d_name = "PORTUGUÊS"
+                elif d == "HIST. e GEOGR.":
+                    d_name = "HISTÓRIA_E_GEOGRAFIA"
+                elif d == "Cidadania/Ética":
+                    d_name = "CIDADANIA_ETICA"
+                else:
+                    d_name = d.upper()
 
-                # Tabela de disciplinas
-                disciplines = list()
-                for d in self.disciplines_columns:
-                    if d in df.columns:
-                        disciplines.append({"disciplina_id": disciplines_id[d], "nome": d})
+                disciplines.append({"disciplina_id": disciplines_id[d], "nome": self.remove_accentuation(d_name)})
 
-                # Tabela de notas
-                grades = []
-                for student in df.index:
-                    student_id = hash(student)
-                    for discipline in self.disciplines_columns:
-                        if discipline in df.columns:
-                            len_grades = len(df.loc[student, discipline])
-                            grades_list = df.loc[student, discipline]
+        # Tabela de notas
+        grades = []
+        for student in df.index:
+            student_id = hash(student)
+            for discipline in self.disciplines_columns:
+                if discipline in df.columns:
+                    len_grades = len(df.loc[student, discipline])
+                    grades_list = df.loc[student, discipline]
 
-                            # Inicializa as variáveis para as notas
-                            first_grade = first_grade_rc = second_grade = second_grade_rc = None
-                            third_grade = third_grade_rc = fourth_grade = fourth_grade_rc = None
-                            sum_grades = average_grades = None
+                    # Inicializa as variáveis para as notas
+                    first_grade = first_grade_rc = second_grade = second_grade_rc = None
+                    third_grade = third_grade_rc = fourth_grade = fourth_grade_rc = None
+                    sum_grades = average_grades = None
 
-                            # Lógica para processar as notas
-                            for index, grade in enumerate(grades_list):
-                                if index == len_grades - 2:  # Penúltimo elemento é a soma das notas
-                                    sum_grades = grade
-                                elif index == len_grades - 1:  # Último elemento é a média das notas
-                                    average_grades = grade
-                                else:
-                                    # Verifica se a próxima nota é menor e diferente
-                                    if index + 1 < len_grades and isinstance(grade, (int, float)):
-                                        next_grade = grades_list[index + 1]
-                                        if isinstance(next_grade, (int, float)) and next_grade < grade:
-                                            grade = max(grade, next_grade)
+                    # Lógica para processar as notas
+                    for index, grade in enumerate(grades_list):
+                        if index == len_grades - 2:  # Penúltimo elemento é a soma das notas
+                            sum_grades = grade
+                        elif index == len_grades - 1:  # Último elemento é a média das notas
+                            average_grades = grade
+                        else:
+                            # Verifica se a próxima nota é menor e diferente
+                            if index + 1 < len_grades and isinstance(grade, (int, float)):
+                                next_grade = grades_list[index + 1]
+                                if isinstance(next_grade, (int, float)) and next_grade < grade:
+                                    grade = max(grade, next_grade)
 
-                                    # Atribui as notas às variáveis correspondentes
-                                    if index == 0:
-                                        first_grade = grade
-                                    elif index == 1:
-                                        first_grade_rc = grade
-                                    elif index == 2:
-                                        second_grade = grade
-                                    elif index == 3:
-                                        second_grade_rc = grade
-                                    elif index == 4:
-                                        third_grade = grade
-                                    elif index == 5:
-                                        third_grade_rc = grade
-                                    elif index == 6:
-                                        fourth_grade = grade
-                                    elif index == 7:
-                                        fourth_grade_rc = grade
+                            # Atribui as notas às variáveis correspondentes
+                            if index == 0:
+                                first_grade = grade
+                            elif index == 1:
+                                first_grade_rc = grade
+                            elif index == 2:
+                                second_grade = grade
+                            elif index == 3:
+                                second_grade_rc = grade
+                            elif index == 4:
+                                third_grade = grade
+                            elif index == 5:
+                                third_grade_rc = grade
+                            elif index == 6:
+                                fourth_grade = grade
+                            elif index == 7:
+                                fourth_grade_rc = grade
 
-                            # Adiciona os dados processados à lista de notas
-                            grades.append({
-                                "aluno_id": student_id,
-                                "disciplina_id": disciplines_id[discipline],
-                                "1_bim_nota": first_grade,
-                                "1_bim_nota_rc": first_grade_rc,
-                                "2_bim_nota": second_grade,
-                                "2_bim_nota_rc": second_grade_rc,
-                                "3_bim_nota": third_grade,
-                                "3_bim_nota_rc": third_grade_rc,
-                                "4_bim_nota": fourth_grade,
-                                "4_bim_nota_rc": fourth_grade_rc,
-                                "total_notas": sum_grades,
-                                "media_notas": average_grades,
-                            })
+                    # Adiciona os dados processados à lista de notas
+                    grades.append({
+                        "aluno_id": student_id,
+                        "disciplina_id": disciplines_id[discipline],
+                        "1_bim_nota": first_grade,
+                        "1_bim_nota_rc": first_grade_rc,
+                        "2_bim_nota": second_grade,
+                        "2_bim_nota_rc": second_grade_rc,
+                        "3_bim_nota": third_grade,
+                        "3_bim_nota_rc": third_grade_rc,
+                        "4_bim_nota": fourth_grade,
+                        "4_bim_nota_rc": fourth_grade_rc,
+                        "total_notas": sum_grades,
+                        "media_notas": average_grades,
+                    })
 
-                return pd.DataFrame(students), pd.DataFrame(disciplines), pd.DataFrame(grades)
+        return pd.DataFrame(students), pd.DataFrame(disciplines), pd.DataFrame(grades)
 
 
     def manipulate_data(self):
@@ -204,18 +221,8 @@ class ExtractData:
             if column in df.columns:
                 df = df.drop(columns=column)
 
-        output_folder = self.folder_path + "/outputs"
-        if not os.path.exists(output_folder):
-            os.makedirs(output_folder)
-
         students, disciplines, grades = self.normalize_data(df)
-
         send_to_mysql(df_students=students,df_disciplines=disciplines,df_grades=grades)
-
-        # json_file = self.file.replace(".xls", ".json")
-        # json_file = os.path.join(output_folder, os.path.basename(json_file))
-
-        # print(f"Arquivo JSON criado em: {json_file}")
 
 
     def run(self):
