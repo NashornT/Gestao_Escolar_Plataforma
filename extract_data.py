@@ -8,54 +8,54 @@ import unicodedata
 class ExtractData:
 
     def __init__(self, folder_path):
-        self.folder_path = folder_path
-        self.file = None
-        self.workbook = None
-        self.sheet = None
-        self.studant_dict = dict()
-        self.disciplines_columns = ['Língua Portuguesa', 'Artes', 'Ciências', 'Matemática', 'Geografia', 'História',
+        self.__folder_path = folder_path
+        self.__file = None
+        self.__workbook = None
+        self.__sheet = None
+        self.__student_dict = dict()
+        self.__disciplines_columns = ['Língua Portuguesa', 'Artes', 'Ciências', 'Matemática', 'Geografia', 'História',
                                     'Cidadania/Ética', 'Inglês','MATEMÁTICA','HIST. e GEOGR.','CIÊNCIAS','PORTUGUÊS']
 
-    def open_file(self):
+    def __open_file(self):
         """Open the .xls file."""
-        self.workbook = xlrd.open_workbook(self.file)
-        self.sheet = self.workbook.sheet_by_index(0)
+        self.__workbook = xlrd.open_workbook(self.__file)
+        self.__sheet = self.__workbook.sheet_by_index(0)
 
 
-    def get_data(self):
+    def __get_data(self):
         """Extract data from the .xls file."""
-        self.open_file()
+        self.__open_file()
 
         studant_key = str
-        for row_idx in range(self.sheet.nrows):
+        for row_idx in range(self.__sheet.nrows):
             studant_data = list()
-            for data in self.sheet.row_values(row_idx):
+            for data in self.__sheet.row_values(row_idx):
                 if "Aluno" in str(data):
                     studant_key = data
-                    self.studant_dict.update({studant_key: {}})
+                    self.__student_dict.update({studant_key: {}})
                 elif data != "":
                     studant_data.append(data)
 
             if len(studant_data) > 1:
                 key = studant_data[1]
 
-                key, studant_key = self.adjustment_keys(key,studant_key, studant_data)
+                key, studant_key = self.__adjustment_keys(key,studant_key, studant_data)
 
                 if key != studant_key:
-                    self.studant_dict.get(studant_key).update({key: studant_data})
+                    self.__student_dict.get(studant_key).update({key: studant_data})
 
-    def adjustment_keys(self, key ,studant_key, studant_data):
+    def __adjustment_keys(self, key ,studant_key, studant_data):
         """Adjust the keys for the dictionary."""
 
         if studant_key == 'Aluno(a):':
-            del self.studant_dict[studant_key]
+            del self.__student_dict[studant_key]
             studant_key = studant_data[0]
-            self.studant_dict.update({studant_key: {}})
+            self.__student_dict.update({studant_key: {}})
 
         if key == "CÓDIGOS E":
             key = studant_data[2]
             studant_data.remove("CÓDIGOS E")
-        elif key not in self.disciplines_columns:
+        elif key not in self.__disciplines_columns:
             key = studant_data[0]
 
         if key == 'BASE NACIONAL COMUM':
@@ -63,7 +63,7 @@ class ExtractData:
             studant_data.remove(studant_data[0])
             studant_data.remove(studant_data[1])
 
-        if key in self.disciplines_columns:
+        if key in self.__disciplines_columns:
             for data in studant_data:
                 if type(data) == str:
                     studant_data.remove(data)
@@ -74,40 +74,19 @@ class ExtractData:
         return key, studant_key
 
 
-    def remove_accentuation(self, string):
+    def __remove_accentuation(self, string):
+        """"Remove accentuation from a string."""
         normalize_string = unicodedata.normalize('NFKD', string)
         return ''.join([c for c in normalize_string if not unicodedata.combining(c)])
 
-    def normalize_data(self, df):
-        """Normaliza os dados do DataFrame para um formato relacional."""
+    def __get_students(self, df, shift_columns):
+        """ Get students data from the DataFrame.
+        :param df: DataFrame with student data
+        :param shift_columns: List of columns with shift information
+        :return: List of dictionaries with student data
+        """
 
-        # Garantir que os nomes das colunas estejam corretos
-        df.columns = [col.strip() for col in df.columns]  # Remove espaços extras
-
-        # Identificar colunas de escolaridade dinamicamente
-        shift_columns = [col for col in df.columns if
-                                "Ano de Escolaridade" in col or "PRÉ" in col or 'Pré' in col]
-
-        disciplines_id = {
-            "Língua Portuguesa": 1,
-            "Artes": 2,
-            "Ciências": 3,
-            "Matemática": 4,
-            "Geografia": 5,
-            "História": 6,
-            "Cidadania/Ética": 7,
-            "Inglês": 8,
-            "MATEMÁTICA": 4,
-            "HIST. e GEOGR.": 9,
-            "CIÊNCIAS": 3,
-            "PORTUGUÊS": 1
-        }
-
-        if not shift_columns:
-            raise KeyError("Nenhuma coluna de escolaridade encontrada no DataFrame.")
-
-        # Tabela de alunos
-        students = []
+        students = list()
         for student in df.index:
             for col in shift_columns:
                 if col in df.columns:
@@ -118,19 +97,26 @@ class ExtractData:
                         grade_level, shift = value, None  # Caso não seja iterável, atribua `None` ao turno
 
                     # Todo: Change this Later
-                    if col == "6° Ano de Escolaridade - 601" or "6° Ano de Escolaridade - 602":
+                    if col == "6° Ano de Escolaridade - 601" or col == "6° Ano de Escolaridade - 602":
                         shift = "Manhã"
+
                     students.append({
-                        "aluno_id": hash(student),  # Gerar um ID único
+                        "aluno_id": str(hash(student)),  # Gerar um ID único
                         "nome": student.replace("Aluno(a):", "").strip(),
                         "nivel_escolar": col,
                         "turno": shift.replace("Turno:", "").strip() if shift else None
                     })
 
+        return students
 
-        # Tabela de disciplinas
+    def __get_disciplines(self, df, disciplines_id):
+        """"Get disciplines data from the DataFrame.
+        :param df: DataFrame with disciplines data
+        :param disciplines_id: Dictionary with disciplines IDs
+        :return: List of dictionaries with disciplines data
+        """
         disciplines = list()
-        for d in self.disciplines_columns:
+        for d in self.__disciplines_columns:
             if d in df.columns:
                 if d == "Língua Portuguesa":
                     d_name = "PORTUGUÊS"
@@ -141,13 +127,20 @@ class ExtractData:
                 else:
                     d_name = d.upper()
 
-                disciplines.append({"disciplina_id": disciplines_id[d], "nome": self.remove_accentuation(d_name)})
+                disciplines.append({"disciplina_id": disciplines_id[d], "nome": self.__remove_accentuation(d_name)})
 
-        # Tabela de notas
-        grades = []
+        return disciplines
+
+    def __get_grades(self, df, disciplines_id):
+        """"Get grades data from the DataFrame.
+        :param df: DataFrame with grades data
+        :param disciplines_id: Dictionary with disciplines IDs
+        :return: List of dictionaries with grades data
+        """
+        grades = list()
         for student in df.index:
-            student_id = hash(student)
-            for discipline in self.disciplines_columns:
+            student_id = str(hash(student))
+            for discipline in self.__disciplines_columns:
                 if discipline in df.columns:
                     len_grades = len(df.loc[student, discipline])
                     grades_list = df.loc[student, discipline]
@@ -204,15 +197,55 @@ class ExtractData:
                         "media_notas": average_grades,
                     })
 
+        return grades
+
+    def __normalize_data(self, df):
+        """Normaliza os dados do DataFrame para um formato relacional."""
+
+        # Garantir que os nomes das colunas estejam corretos
+        df.columns = [col.strip() for col in df.columns]  # Remove espaços extras
+
+        # Identificar colunas de escolaridade dinamicamente
+        shift_columns = [col for col in df.columns if
+                                "Ano de Escolaridade" in col or "PRÉ" in col or 'Pré' in col]
+
+        disciplines_id = {
+            "Língua Portuguesa": 1,
+            "Artes": 2,
+            "Ciências": 3,
+            "Matemática": 4,
+            "Geografia": 5,
+            "História": 6,
+            "Cidadania/Ética": 7,
+            "Inglês": 8,
+            "MATEMÁTICA": 4,
+            "HIST. e GEOGR.": 9,
+            "CIÊNCIAS": 3,
+            "PORTUGUÊS": 1
+        }
+
+        if not shift_columns:
+            raise KeyError("Nenhuma coluna de escolaridade encontrada no DataFrame.")
+
+        # Tabela de alunos
+        students = self.__get_students(df, shift_columns)
+
+        # Tabela de disciplinas
+        disciplines = self.__get_disciplines(df, disciplines_id)
+
+        # Tabela de notas
+        grades = self.__get_grades(df, disciplines_id)
+
+
         return pd.DataFrame(students), pd.DataFrame(disciplines), pd.DataFrame(grades)
 
 
-    def manipulate_data(self):
+    def __manipulate_data(self):
         """Manipulate the extracted data."""
-        self.get_data()
+        self.__get_data()
 
         # Convert the dictionary to a DataFrame
-        df = pd.DataFrame.from_dict(self.studant_dict, orient='index')
+        df = pd.DataFrame.from_dict(self.__student_dict, orient='index')
 
         # Remove unwanted columns
         colunas_para_remover = ['ÁREAS DE', 'RB', 'LEGENDA', 'CONHECIMENTO','N','Disciplinas']
@@ -221,15 +254,15 @@ class ExtractData:
             if column in df.columns:
                 df = df.drop(columns=column)
 
-        students, disciplines, grades = self.normalize_data(df)
+        students, disciplines, grades = self.__normalize_data(df)
         send_to_mysql(df_students=students,df_disciplines=disciplines,df_grades=grades)
 
 
     def run(self):
         """Run the extraction and manipulation process."""
         
-        for file in os.listdir(self.folder_path):
+        for file in os.listdir(self.__folder_path):
             if file.endswith('.xls'):
-                self.file = os.path.join(self.folder_path, file)
-                self.studant_dict = {}
-                self.manipulate_data()
+                self.__file = os.path.join(self.__folder_path, file)
+                self.__student_dict = {}
+                self.__manipulate_data()
