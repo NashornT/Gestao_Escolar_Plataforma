@@ -12,6 +12,7 @@ class ExtractData:
         self.__file = None
         self.__workbook = None
         self.__sheet = None
+        self.__student_year = None
         self.__student_dict = dict()
         self.__disciplines_columns = ['Língua Portuguesa', 'Artes', 'Ciências', 'Matemática', 'Geografia', 'História',
                                     'Cidadania/Ética', 'Inglês','MATEMÁTICA','HIST. e GEOGR.','CIÊNCIAS','PORTUGUÊS']
@@ -30,9 +31,15 @@ class ExtractData:
         for row_idx in range(self.__sheet.nrows):
             studant_data = list()
             for data in self.__sheet.row_values(row_idx):
+                year = str()
+                if "20" in str(data) and 4 <= len(str(data)) <= 6:
+                    year = str(data)
+
                 if "Aluno" in str(data):
                     studant_key = data
                     self.__student_dict.update({studant_key: {}})
+                elif "Ano Letivo:" in str(data):
+                    self.__student_year = data.replace("Ano Letivo:", "").strip()
                 elif data != "":
                     studant_data.append(data)
 
@@ -100,11 +107,15 @@ class ExtractData:
                     if col == "6° Ano de Escolaridade - 601" or col == "6° Ano de Escolaridade - 602":
                         shift = "Manhã"
 
+                    tot_absences = df['FALTAS'][student][-1] if isinstance(df['FALTAS'][student], list) else None
+
                     students.append({
                         "aluno_id": str(hash(student)),  # Gerar um ID único
-                        "nome": student.replace("Aluno(a):", "").strip(),
+                        "aluno": student.replace("Aluno(a):", "").strip(),
                         "nivel_escolar": col,
-                        "turno": shift.replace("Turno:", "").strip() if shift else None
+                        "ano_escolar": self.__student_year,
+                        "turno": shift.replace("Turno:", "").strip() if shift else None,
+                        "total_faltas": tot_absences
                     })
 
         return students
@@ -127,7 +138,7 @@ class ExtractData:
                 else:
                     d_name = d.upper()
 
-                disciplines.append({"disciplina_id": disciplines_id[d], "nome": self.__remove_accentuation(d_name)})
+                disciplines.append({"disciplina_id": disciplines_id[d], "disciplina": self.__remove_accentuation(d_name)})
 
         return disciplines
 
@@ -185,14 +196,14 @@ class ExtractData:
                     grades.append({
                         "aluno_id": student_id,
                         "disciplina_id": disciplines_id[discipline],
-                        "1_bim_nota": first_grade,
-                        "1_bim_nota_rc": first_grade_rc,
-                        "2_bim_nota": second_grade,
-                        "2_bim_nota_rc": second_grade_rc,
-                        "3_bim_nota": third_grade,
-                        "3_bim_nota_rc": third_grade_rc,
-                        "4_bim_nota": fourth_grade,
-                        "4_bim_nota_rc": fourth_grade_rc,
+                        "primeiro_bimestre_nota": first_grade,
+                        "primeiro_bimestre_nota_recuperacao": first_grade_rc,
+                        "segundo_bimestre_nota": second_grade,
+                        "segundo_bimestre_nota_recuperacao": second_grade_rc,
+                        "terceiro_bimestre_nota": third_grade,
+                        "terceiro_bimestre_nota_recuperacao": third_grade_rc,
+                        "quarto_bimestre_nota": fourth_grade,
+                        "quarto_bimestre_nota_recuperacao": fourth_grade_rc,
                         "total_notas": sum_grades,
                         "media_notas": average_grades,
                     })

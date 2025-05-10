@@ -47,13 +47,13 @@ def insert_without_duplicates(df, engine, table_name):
     :param engine: Conexão SQLAlchemy
     """
     try:
-        db_columns = pd.read_sql(f"SELECT nome FROM {table_name}", con=engine)
-        db_columns['nome'] = db_columns['nome'].str.upper().str.strip().str.replace(' ', '_')
+        db_columns = pd.read_sql(f"SELECT disciplina FROM {table_name}", con=engine)
+        db_columns['disciplina'] = db_columns['disciplina'].str.upper().str.strip().str.replace(' ', '_')
     except:
-        db_columns = pd.DataFrame(columns=['nome'])
+        db_columns = pd.DataFrame(columns=['disciplina'])
 
     # Remove duplicadas já existentes
-    insert = df[~df['nome'].isin(db_columns['nome'])]
+    insert = df[~df['disciplina'].isin(db_columns['disciplina'])]
 
     if not insert.empty:
         print(f"Inserindo {len(insert)} disciplinas novas...")
