@@ -17,11 +17,11 @@ def allowed_file(filename):
 @app.route('/', methods=['GET', 'POST'])
 def index():
     if request.method == 'POST':
-        if 'file' not in request.files:
+        if 'files' not in request.files:
             flash('Nenhum arquivo enviado.')
             return redirect(request.url)
 
-        files = request.files.getlist('file')  # Obter todos os arquivos enviados
+        files = request.files.getlist('files')  # Obter todos os arquivos enviados
         if not files or all(file.filename == '' for file in files):
             flash('Nenhum arquivo selecionado.')
             return redirect(request.url)
@@ -45,6 +45,10 @@ def index():
         return redirect(request.url)
 
     return render_template('index.html')
+
+@app.route('/relatorio', methods=['GET'])
+def relatorio():
+    return redirect("http://localhost:8501")
 
 
 if __name__ == '__main__':

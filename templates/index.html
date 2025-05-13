@@ -3,53 +3,86 @@
 <head>
     <meta charset="UTF-8">
     <title>Ingestão de Arquivos Excel</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
+        * {
+            box-sizing: border-box;
+        }
+
         body {
-            font-family: Arial, sans-serif;
-            background: #121212; /* Fundo preto */
-            color: #ffffff; /* Texto branco */
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #121212;
+            color: #ffffff;
             display: flex;
             flex-direction: column;
             align-items: center;
-            margin-top: 50px;
+            padding: 20px;
+            margin: 0;
         }
 
         h2 {
-            color: #ffffff; /* Título em branco */
+            margin-top: 30px;
+            margin-bottom: 20px;
+            font-size: 28px;
+            text-align: center;
         }
 
-        form {
-            background: #1e1e1e; /* Fundo do formulário em cinza escuro */
+        .container {
+            background: #1e1e1e;
             padding: 30px;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.5);
-            width: 400px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
+            border-radius: 10px;
+            box-shadow: 0 0 15px rgba(0,0,0,0.6);
+            width: 100%;
+            max-width: 500px;
+        }
+
+        label {
+            margin-bottom: 10px;
+            font-size: 16px;
+            display: block;
+            text-align: center;
         }
 
         input[type="file"] {
-            margin: 20px 0;
-            color: #ffffff; /* Texto do input em branco */
+            width: 100%;
+            margin: 10px 0 20px;
+            background-color: #2a2a2a;
+            border: 1px solid #444;
+            color: #ddd;
+            padding: 10px;
+            border-radius: 5px;
         }
 
-        input[type="submit"] {
+        .btn {
+            display: inline-block;
             background-color: #007bff;
             color: white;
-            padding: 10px 20px;
+            padding: 12px 25px;
+            margin-top: 10px;
+            text-align: center;
             border: none;
             border-radius: 5px;
             cursor: pointer;
+            font-size: 15px;
+            width: 100%;
         }
 
-        input[type="submit"]:hover {
+        .btn:hover {
             background-color: #0056b3;
+        }
+
+        .btn-secondary {
+            background-color: #28a745;
+        }
+
+        .btn-secondary:hover {
+            background-color: #1e7e34;
         }
 
         .messages {
             margin-top: 20px;
-            width: 400px;
+            width: 100%;
+            max-width: 500px;
         }
 
         .messages ul {
@@ -58,23 +91,29 @@
         }
 
         .messages li {
-            background-color: #2e8b57; /* Fundo das mensagens */
+            background-color: #2e8b57;
             border-left: 5px solid #1b5e20;
-            padding: 10px;
-            margin-bottom: 5px;
+            padding: 12px;
+            margin-bottom: 10px;
             border-radius: 5px;
-            color: #ffffff; /* Texto das mensagens em branco */
+            color: #ffffff;
         }
     </style>
 </head>
 <body>
-    <h2>Processamento de Arquivos Excel</h2>
+    <h2>📄 Processamento de Arquivos</h2>
 
-    <form method="POST" enctype="multipart/form-data">
-        <label for="file">Selecione os arquivos .xls</label>
-        <input type="file" name="file" multiple accept=".xls" required>
-        <input type="submit" value="Enviar e Processar">
-    </form>
+    <div class="container">
+        <form method="POST" enctype="multipart/form-data">
+            <label for="files">Selecione os arquivos .xls</label>
+            <input type="file" name="files" id="files" multiple accept=".xls" required>
+            <button type="submit" class="btn">Enviar e Processar</button>
+        </form>
+
+        <form action="/relatorio" method="get">
+            <button type="submit" class="btn btn-secondary">Gerar Relatório</button>
+        </form>
+    </div>
 
     <div class="messages">
         {% with messages = get_flashed_messages() %}

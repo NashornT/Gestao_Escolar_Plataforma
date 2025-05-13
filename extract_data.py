@@ -31,9 +31,7 @@ class ExtractData:
         for row_idx in range(self.__sheet.nrows):
             studant_data = list()
             for data in self.__sheet.row_values(row_idx):
-                year = str()
-                if "20" in str(data) and 4 <= len(str(data)) <= 6:
-                    year = str(data)
+                year = None
 
                 if "Aluno" in str(data):
                     studant_key = data
@@ -42,6 +40,11 @@ class ExtractData:
                     self.__student_year = data.replace("Ano Letivo:", "").strip()
                 elif data != "":
                     studant_data.append(data)
+
+
+                if '20' in str(data) and 4 <= len(str(data).replace('.0','')) <= 6:
+                    year = str(data).replace('.0','')
+                    self.__student_year = year
 
             if len(studant_data) > 1:
                 key = studant_data[1]
@@ -107,7 +110,7 @@ class ExtractData:
                     if col == "6° Ano de Escolaridade - 601" or col == "6° Ano de Escolaridade - 602":
                         shift = "Manhã"
 
-                    tot_absences = df['FALTAS'][student][-1] if isinstance(df['FALTAS'][student], list) else None
+                    tot_absences = df['FALTAS'][student][-1] if isinstance(df['FALTAS'][student], list) else 0.0
 
                     students.append({
                         "aluno_id": str(hash(student)),  # Gerar um ID único
