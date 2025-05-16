@@ -1,5 +1,5 @@
 import argparse
-from extract_data import ExtractData
+from methods.extract_data import ExtractData
 
 def main():
     # Configuração da CLI

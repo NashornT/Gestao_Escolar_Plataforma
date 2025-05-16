@@ -1,8 +1,10 @@
-from flask import Flask, render_template, request, redirect, flash
-import os
-from extract_data import ExtractData
+from flask import Flask, render_template, request, redirect, flash, send_file
+from methods.extract_data import ExtractData
 import os
 import shutil
+from methods.create_school_history import school_history
+from methods.download_data import download_school_data
+from datetime import datetime
 
 UPLOAD_FOLDER = 'Files'
 ALLOWED_EXTENSIONS = {'xls'}
@@ -49,6 +51,31 @@ def index():
 @app.route('/relatorio', methods=['GET'])
 def relatorio():
     return redirect("http://localhost:8501")
+
+
+@app.route('/historico', methods=['POST'])
+def historico():
+    aluno_nome = request.form.get('aluno')
+
+    output, error = school_history(studant=aluno_nome)
+
+    if error:
+        return error, 404
+
+    # Retorna o arquivo para download
+    return send_file(output, as_attachment=True, download_name=f"historico_{aluno_nome}.xlsx", mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+@app.route('/baixar_dados', methods=['GET'])
+def baixar_dados():
+    output, error = download_school_data()
+
+    if error:
+        return error, 404
+
+    # Retorna o arquivo para download
+    return send_file(output, as_attachment=True, download_name=f"dados_alunos_{datetime.now()}.xlsx", mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
 
 
 if __name__ == '__main__':
