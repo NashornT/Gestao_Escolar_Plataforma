@@ -115,13 +115,98 @@ class ExtractData:
                     students.append({
                         "aluno_id": str(hash(student)),  # Gerar um ID único
                         "aluno": student.replace("Aluno(a):", "").strip(),
-                        "nivel_escolar": col,
-                        "ano_escolar": self.__student_year,
+                        # "nivel_escolar": col,
+                        # "ano_escolar": self.__student_year,
+                        "turma_id": "NOT IMPLEMENTED",
                         "turno": shift.replace("Turno:", "").strip() if shift else None,
-                        "total_faltas": tot_absences
+                        "total_faltas": tot_absences,
+                        "matricula": "NOT IMPLEMENTED",
+                        "resonsavel_id": "NOT IMPLEMENTED",
+                        "data_nascimento": "NOT IMPLEMENTED",
+                        "endereco": "NOT IMPLEMENTED",
+                        "sexo": "NOT IMPLEMENTED",
+                        "status":"Ativo"
                     })
 
         return students
+
+    def __get_address(self, df):
+        """Get address data from the DataFrame.
+        :param df: DataFrame with address data
+        :return: List of dictionaries with address data
+        """
+        address = list()
+        for student in df.index:
+            #if "ENDEREÇO" in df.columns:
+            address.append({
+                "aluno_id": str(hash(student)),
+                "logradouro": "NOT IMPLEMENTED",
+                "numero": "NOT IMPLEMENTED",
+                "complemento": "NOT IMPLEMENTED",
+                "bairro": "NOT IMPLEMENTED",
+                "cidade": "NOT IMPLEMENTED",
+                "cep": "NOT IMPLEMENTED",
+                "endereco_id": "NOT IMPLEMENTED"
+            })
+
+        return address
+
+    def __get_professors(self, df):
+        """Get professors data from the DataFrame.
+        :param df: DataFrame with professors data
+        :return: List of dictionaries with professors data
+        """
+        professors = list()
+        for student in df.index:
+            #if "PROFESSOR" in df.columns:
+            professors.append({
+                "professor_id": "NOT IMPLEMENTED",
+                "nome": "NOT IMPLEMENTED",
+                "email": "NOT IMPLEMENTED",
+                "telefone": "NOT IMPLEMENTED",
+                "endereco_id": "NOT IMPLEMENTED",
+            })
+
+        return professors
+
+    def __get_responsible(self, df):
+        """Get responsible data from the DataFrame.
+        :param df: DataFrame with responsible data
+        :return: List of dictionaries with responsible data
+        """
+        responsible = list()
+        for student in df.index:
+            #if "RESPONSÁVEL" in df.columns:
+            responsible.append({
+                "aluno_id": str(hash(student)),
+                "nome":"NOT IMPLEMENTED",
+                "telefone": "NOT IMPLEMENTED",
+                "endereco_id": "NOT IMPLEMENTED",
+                "cpf": "NOT IMPLEMENTED",
+                "email": "NOT IMPLEMENTED",
+                "parentesco": "NOT IMPLEMENTED",
+                "responsavel": "NOT IMPLEMENTED",
+            })
+
+        return responsible
+
+
+    def __get_classes(self,df):
+        """Get classes data from the DataFrame.
+        :param df: DataFrame with classes data
+        :return: List of dictionaries with classes data
+        """
+        classes = list()
+        for student in df.index:
+            #if "TURMA" in df.columns:
+            classes.append({
+                "turma": "NOT IMPLEMENTED",
+                "turma_id": "NOT IMPLEMENTED",
+                "ano_escolar": self.__student_year,
+                "nivel_escolar": "NOT IMPLEMENTED"
+            })
+
+        return classes
 
     def __get_disciplines(self, df, disciplines_id):
         """"Get disciplines data from the DataFrame.
@@ -197,21 +282,53 @@ class ExtractData:
 
                     # Adiciona os dados processados à lista de notas
                     grades.append({
+                        "nota_id":"NOT IMPLEMENTED",
                         "aluno_id": student_id,
+                        "ano_letivo": self.__student_year,
                         "disciplina_id": disciplines_id[discipline],
-                        "primeiro_bimestre_nota": first_grade,
-                        "primeiro_bimestre_nota_recuperacao": first_grade_rc,
-                        "segundo_bimestre_nota": second_grade,
-                        "segundo_bimestre_nota_recuperacao": second_grade_rc,
-                        "terceiro_bimestre_nota": third_grade,
-                        "terceiro_bimestre_nota_recuperacao": third_grade_rc,
-                        "quarto_bimestre_nota": fourth_grade,
-                        "quarto_bimestre_nota_recuperacao": fourth_grade_rc,
-                        "total_notas": sum_grades,
-                        "media_notas": average_grades,
+                        "nota_1_bimestre": first_grade,
+                        "nota_1_bimestre_recuperacao": first_grade_rc,
+                        "nota_2_bimestre": second_grade,
+                        "nota_2_bimestre_recuperacao": second_grade_rc,
+                        "nota_3_bimestre": third_grade,
+                        "nota_3_bimestre_recuperacao": third_grade_rc,
+                        "nota_4_bimestre": fourth_grade,
+                        "nota_4_bimestre_recuperacao": fourth_grade_rc,
+                        "nota_total": sum_grades,
+                        "media_final": average_grades,
                     })
 
         return grades
+
+    def __intermediate_tables(self, df):
+        studants_classes = list()
+        disciplines_classes = list()
+        professors_disciplines = list()
+
+        for student in df.index:
+            student_id = str(hash(student))
+            # for discipline in self.__disciplines_columns:
+            #     if discipline in df.columns:
+            #         discipline_id = self.__disciplines_columns.index(discipline) + 1
+            #         pass
+            studants_classes.append({
+                "aluno_id": "NOT IMPLEMENTED",
+                "turma_id": "NOT IMPLEMENTED",
+            })
+
+            disciplines_classes.append({
+                "disciplina_id": "NOT IMPLEMENTED",
+                "turma_id": "NOT IMPLEMENTED",
+
+            })
+
+            professors_disciplines.append({
+                "professor_id": "NOT IMPLEMENTED",
+                "disciplina_id": "NOT IMPLEMENTED",
+            })
+
+        return studants_classes, disciplines_classes, professors_disciplines
+
 
     def __normalize_data(self, df):
         """Normaliza os dados do DataFrame para um formato relacional."""
@@ -250,8 +367,25 @@ class ExtractData:
         # Tabela de notas
         grades = self.__get_grades(df, disciplines_id)
 
+        # Tabela de endereços
+        address = self.__get_address(df)
 
-        return pd.DataFrame(students), pd.DataFrame(disciplines), pd.DataFrame(grades)
+        # Tabela de professores
+        professors = self.__get_professors(df)
+
+        # Tabela de responsáveis
+        responsible = self.__get_responsible(df)
+
+        # Tabela de turmas
+        classes = self.__get_classes(df)
+
+        # Tabelas intermediárias
+        studants_classes, disciplines_classes, professors_disciplines = self.__intermediate_tables(df)
+
+
+        return (pd.DataFrame(students), pd.DataFrame(disciplines), pd.DataFrame(grades), pd.DataFrame(address),
+                pd.DataFrame(professors), pd.DataFrame(responsible), pd.DataFrame(classes),
+                pd.DataFrame(studants_classes), pd.DataFrame(disciplines_classes), pd.DataFrame(professors_disciplines))
 
 
     def __manipulate_data(self):
@@ -268,8 +402,13 @@ class ExtractData:
             if column in df.columns:
                 df = df.drop(columns=column)
 
-        students, disciplines, grades = self.__normalize_data(df)
-        send_to_mysql(df_students=students,df_disciplines=disciplines,df_grades=grades)
+        (students, disciplines, grades, adress, professors, responsible, classes, students_classes,
+         disciplines_classes, professors_disciplines) = self.__normalize_data(df)
+
+        send_to_mysql(df_students=students,df_disciplines=disciplines,df_grades=grades
+                      ,df_address=adress,df_professors=professors,df_responsible=responsible,
+                      df_classes=classes,df_students_classes=students_classes,df_disciplines_classes=disciplines_classes,
+                      df_professors_disciplines=professors_disciplines)
 
 
     def run(self):

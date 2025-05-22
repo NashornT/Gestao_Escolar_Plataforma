@@ -10,6 +10,14 @@ def send_to_mysql(**kwargs):
     safe_to_sql(kwargs.get('df_students'), 'alunos', engine, index=False)
     safe_to_sql(kwargs.get('df_disciplines'), 'materias', engine, index=False)
     safe_to_sql(kwargs.get('df_grades'), 'notas', engine, index=False)
+    safe_to_sql(kwargs.get('df_address'), 'endereco', engine, index=False)
+    safe_to_sql(kwargs.get('df_professors'), 'professores', engine, index=False)
+    safe_to_sql(kwargs.get('df_responsible'), 'responsaveis', engine, index=False)
+    safe_to_sql(kwargs.get('df_classes'), 'turmas', engine, index=False)
+    safe_to_sql(kwargs.get('df_students_classes'), 'alunos_turma', engine, index=False)
+    safe_to_sql(kwargs.get('df_disciplines_classes'), 'disciplina_turma', engine, index=False)
+    safe_to_sql(kwargs.get('df_professors_disciplines'), 'professores_disciplinas', engine, index=False)
+
 
 
 
