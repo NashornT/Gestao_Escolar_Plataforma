@@ -7,18 +7,22 @@ def send_to_mysql(**kwargs):
     # Crie a conexão
     engine = create_engine(f'mysql+pymysql://{user}:{password}@{host}:{port}/{database}?charset=utf8mb4')
 
-    safe_to_sql(kwargs.get('df_students'), 'alunos', engine, index=False)
-    safe_to_sql(kwargs.get('df_disciplines'), 'materias', engine, index=False)
-    safe_to_sql(kwargs.get('df_grades'), 'notas', engine, index=False)
-    safe_to_sql(kwargs.get('df_address'), 'endereco', engine, index=False)
-    safe_to_sql(kwargs.get('df_professors'), 'professores', engine, index=False)
-    safe_to_sql(kwargs.get('df_responsible'), 'responsaveis', engine, index=False)
-    safe_to_sql(kwargs.get('df_classes'), 'turmas', engine, index=False)
-    safe_to_sql(kwargs.get('df_students_classes'), 'alunos_turma', engine, index=False)
-    safe_to_sql(kwargs.get('df_disciplines_classes'), 'disciplina_turma', engine, index=False)
-    safe_to_sql(kwargs.get('df_professors_disciplines'), 'professores_disciplinas', engine, index=False)
+    tables = {'df_students': 'alunos',
+            'df_disciplines': 'materias',
+            'df_grades': 'notas',
+            'df_address': 'endereco',
+            'df_professors': 'professores',
+            'df_students_guardian': 'responsaveis',
+            'df_classes': 'turmas',
+            'df_students_classes': 'alunos_turma',
+            'df_disciplines_classes': 'disciplina_turma',
+            'df_professors_disciplines': 'professores_disciplinas'}
 
-
+    for table in tables.keys():
+        if kwargs.get(table) is not None:
+            safe_to_sql(kwargs.get(table), tables[table], engine, index=False)
+        else:
+            print(f"DataFrame '{table}' não encontrado. Pulando a inserção.")
 
 
 def safe_to_sql(df, table_name, engine, index=False):
