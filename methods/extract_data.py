@@ -1,7 +1,6 @@
 import xlrd
 import pandas as pd
 import os
-import uuid
 from storage.mysql import send_to_mysql
 
 
@@ -31,7 +30,6 @@ class ExtractData:
         for row_idx in range(self.__sheet.nrows):
             studant_data = list()
             for data in self.__sheet.row_values(row_idx):
-                year = None
 
                 if "Aluno" in str(data):
                     studant_key = data
@@ -114,7 +112,7 @@ class ExtractData:
 
         # Tabela de alunos
         from tables.students import Students
-        students = Students(df, class_columns).create_schema()
+        students, shift = Students(df, class_columns, self.student_year).create_schema()
 
         # Tabela de disciplinas
         from tables.disciplinas import Disciplina
@@ -138,11 +136,15 @@ class ExtractData:
 
         # Tabela de turmas
         from tables.class_students import ClassStudents
-        classes = ClassStudents(df, self.student_year, class_columns).create_schema()
+        classes = ClassStudents(df, self.student_year, class_columns, shift).create_schema()
 
         # Tabelas intermediárias
         from tables.intermediate_tables import IntermediateTables
-        studants_classes, disciplines_classes, professors_disciplines = IntermediateTables(df).create_schema()
+        (studants_classes,
+         disciplines_classes,
+         professors_disciplines) = IntermediateTables(df, self.disciplines_columns,
+                                                      disciplines_id,
+                                                      class_columns, self.student_year, shift).create_schema()
 
 
         return (pd.DataFrame(students), pd.DataFrame(disciplines), pd.DataFrame(grades), pd.DataFrame(address),

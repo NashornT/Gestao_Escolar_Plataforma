@@ -1,33 +1,43 @@
 import uuid
 
+from pandas.core.array_algos.transforms import shift
+
+
 class IntermediateTables:
-    def __init__(self, dataframe):
+    def __init__(self, dataframe, disciplines_columns, discipline_id, class_columns, student_year, shift):
         self.dataframe = dataframe
+        self.disciplines_columns = disciplines_columns
+        self.discipline_id = discipline_id
+        self.class_columns = class_columns
+        self.student_year = student_year
+        self.shift = shift
 
     def create_schema(self):
         studants_classes = list()
         disciplines_classes = list()
         professors_disciplines = list()
+        duplicate_disciplines = set()
 
         df = self.dataframe
+        student_class = self.class_columns[0]
+        student_class_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, str(student_class) + str(self.shift) + str(self.student_year)))
         for student in df.index:
-            student_id = str(hash(student))
-            # for discipline in self.disciplines_columns:
-            #     if discipline in df.columns:
-            #         discipline_id = self.disciplines_columns.index(discipline) + 1
-            #         pass
+            for discipline in self.disciplines_columns:
+                if discipline in df.columns and discipline not in duplicate_disciplines:
+                    disciplines_classes.append({
+                        "disciplina_id": self.discipline_id.get(discipline),
+                        "turma_id": student_class_id,
+
+                    })
+                duplicate_disciplines.add(discipline)
 
             studants_classes.append({
                 "aluno_id": str(uuid.uuid5(uuid.NAMESPACE_DNS, str(student))),
-                "turma_id": "NOT IMPLEMENTED",
+                "turma_id": student_class_id,
             })
 
-            disciplines_classes.append({
-                "disciplina_id": "NOT IMPLEMENTED",
-                "turma_id": "NOT IMPLEMENTED",
 
-            })
-
+            # TODO: Implement logic to retrieve professor_id and disciplina_id
             professors_disciplines.append({
                 "professor_id": "NOT IMPLEMENTED",
                 "disciplina_id": "NOT IMPLEMENTED",

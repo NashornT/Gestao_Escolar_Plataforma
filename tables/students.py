@@ -1,9 +1,10 @@
 import uuid
 
 class Students:
-    def __init__(self, dataframe, class_columns):
+    def __init__(self, dataframe, class_columns, student_year):
         self.dataframe = dataframe
         self.class_columns = class_columns
+        self.student_year = student_year
 
     def create_schema(self):
         """ Get students data from the DataFrame.
@@ -13,6 +14,7 @@ class Students:
         """
         df = self.dataframe
         students = list()
+        shift = None
         for student in df.index:
             for col in self.class_columns:
                 if col in df.columns:
@@ -28,13 +30,16 @@ class Students:
 
                     tot_absences = df['FALTAS'][student][-1] if isinstance(df['FALTAS'][student], list) else 0.0
 
+                    shift = shift.replace("Turno:", "").strip() if shift else None
+
+                    student_class_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, str(col) + str(shift) + str(self.student_year)))
                     students.append({
                         "aluno_id": str(uuid.uuid5(uuid.NAMESPACE_DNS, str(student))),  # Gerar um ID único
                         "aluno": student.replace("Aluno(a):", "").strip(),
                         # "nivel_escolar": col,
                         # "ano_escolar": self.__student_year,
-                        "turma_id": str(uuid.uuid5(uuid.NAMESPACE_DNS, str(col))),
-                        "turno": shift.replace("Turno:", "").strip() if shift else None,
+                        "turma_id": student_class_id,
+                        "turno": shift,
                         "total_faltas": tot_absences,
                         "matricula": "NOT IMPLEMENTED",
                         "resonsavel_id": "NOT IMPLEMENTED",
@@ -44,4 +49,4 @@ class Students:
                         "status": "Ativo"
                     })
 
-        return students
+        return students, shift
