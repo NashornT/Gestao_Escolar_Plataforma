@@ -39,7 +39,6 @@ class Students:
                         # "nivel_escolar": col,
                         # "ano_escolar": self.__student_year,
                         "turma_id": student_class_id,
-                        "turno": shift,
                         "total_faltas": tot_absences,
                         "matricula": "NOT IMPLEMENTED",
                         "resonsavel_id": "NOT IMPLEMENTED",

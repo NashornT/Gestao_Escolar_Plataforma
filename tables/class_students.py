@@ -21,6 +21,7 @@ class ClassStudents:
                 "turma": student_class,
                 "turma_id": student_class_id,
                 "ano_escolar": self.student_year,
+                "turno": self.shift,
             })
 
         return classes

@@ -29,7 +29,7 @@ class IntermediateTables:
                         "turma_id": student_class_id,
 
                     })
-                duplicate_disciplines.add(discipline)
+                    duplicate_disciplines.add(discipline)
 
             studants_classes.append({
                 "aluno_id": str(uuid.uuid5(uuid.NAMESPACE_DNS, str(student))),

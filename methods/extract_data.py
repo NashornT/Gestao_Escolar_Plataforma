@@ -1,6 +1,7 @@
 import xlrd
 import pandas as pd
 import os
+import openpyxl
 from storage.mysql import send_to_mysql
 
 
@@ -18,39 +19,61 @@ class ExtractData:
 
     def __open_file(self):
         """Open the .xls file."""
-        self.__workbook = xlrd.open_workbook(self.__file)
-        self.__sheet = self.__workbook.sheet_by_index(0)
-
+        if self.__file.endswith('.xls'):
+            self.__workbook = xlrd.open_workbook(self.__file)
+            self.__sheet = self.__workbook.sheet_by_index(0)
+        elif self.__file.endswith('.xlsx'):
+            self.__workbook = openpyxl.load_workbook(self.__file)
+            self.__sheet = self.__workbook.active
 
     def __get_data(self):
-        """Extract data from the .xls file."""
+        """Extrai os dados do arquivo .xls ou .xlsx."""
         self.__open_file()
 
         studant_key = str
-        for row_idx in range(self.__sheet.nrows):
-            studant_data = list()
-            for data in self.__sheet.row_values(row_idx):
+        if isinstance(self.__sheet, xlrd.sheet.Sheet):  # Caso seja um arquivo .xls
+            for row_idx in range(self.__sheet.nrows):
+                studant_data = list()
+                for data in self.__sheet.row_values(row_idx):
+                    if "Aluno" in str(data):
+                        studant_key = data
+                        self.__student_dict.update({studant_key: {}})
+                    elif "Ano Letivo:" in str(data):
+                        self.student_year = data.replace("Ano Letivo:", "").strip()
+                    elif data != "":
+                        studant_data.append(data)
 
-                if "Aluno" in str(data):
-                    studant_key = data
-                    self.__student_dict.update({studant_key: {}})
-                elif "Ano Letivo:" in str(data):
-                    self.student_year = data.replace("Ano Letivo:", "").strip()
-                elif data != "":
-                    studant_data.append(data)
+                    if '20' in str(data) and 4 <= len(str(data).replace('.0', '')) <= 6:
+                        year = str(data).replace('.0', '')
+                        self.student_year = year
 
+                if len(studant_data) > 1:
+                    key = studant_data[1]
+                    key, studant_key = self.__adjustment_keys(key, studant_key, studant_data)
+                    if key != studant_key:
+                        self.__student_dict.get(studant_key).update({key: studant_data})
+        else:  # Caso seja um arquivo .xlsx
+            for row in self.__sheet.iter_rows(values_only=True):
+                studant_data = list()
+                for data in row:
+                    if data:
+                        if "Aluno" in str(data):
+                            studant_key = data
+                            self.__student_dict.update({studant_key: {}})
+                        elif "Ano Letivo:" in str(data):
+                            self.student_year = data.replace("Ano Letivo:", "").strip()
+                        elif data != "":
+                            studant_data.append(data)
 
-                if '20' in str(data) and 4 <= len(str(data).replace('.0','')) <= 6:
-                    year = str(data).replace('.0','')
-                    self.student_year = year
+                        if '20' in str(data) and 4 <= len(str(data).replace('.0', '')) <= 6:
+                            year = str(data).replace('.0', '')
+                            self.student_year = year
 
-            if len(studant_data) > 1:
-                key = studant_data[1]
-
-                key, studant_key = self.__adjustment_keys(key,studant_key, studant_data)
-
-                if key != studant_key:
-                    self.__student_dict.get(studant_key).update({key: studant_data})
+                if len(studant_data) > 1:
+                    key = studant_data[1]
+                    key, studant_key = self.__adjustment_keys(key, studant_key, studant_data)
+                    if key != studant_key:
+                        self.__student_dict.get(studant_key).update({key: studant_data})
 
     def __adjustment_keys(self, key ,studant_key, studant_data):
         """Adjust the keys for the dictionary."""
@@ -179,7 +202,7 @@ class ExtractData:
         """Run the extraction and manipulation process."""
         
         for file in os.listdir(self.__folder_path):
-            if file.endswith('.xls'):
+            if file.endswith('.xls') or file.endswith('xlsx'):
                 self.__file = os.path.join(self.__folder_path, file)
                 self.__student_dict = {}
                 self.__manipulate_data()
