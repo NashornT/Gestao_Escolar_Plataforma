@@ -28,6 +28,21 @@ class Grades:
                     sum_grades = average_grades = None
 
                     # Lógica para processar as notas
+                    if "=SUM" in str(grades_list[-1]):
+                        grades_list.pop()
+                    elif "=" in str(grades_list[-1]):
+                        clean_grades = list()
+                        for grade in grades_list:
+                            if '=' not in str(grade):
+                                clean_grades.append(grade)
+                            else:
+                                clean_grades.append(0.0)
+                        grades_list.clear()
+                        grades_list = clean_grades
+                    else:
+                        pass
+
+
                     for index, grade in enumerate(grades_list):
                         if index == len_grades - 2:  # Penúltimo elemento é a soma das notas
                             sum_grades = grade

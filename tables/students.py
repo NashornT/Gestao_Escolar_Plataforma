@@ -28,9 +28,18 @@ class Students:
                     if col == "6° Ano de Escolaridade - 601" or col == "6° Ano de Escolaridade - 602":
                         shift = "Manhã"
 
-                    tot_absences = df['FALTAS'][student][-1] if isinstance(df['FALTAS'][student], list) else 0.0
+                    if "=SUM" in str(df['FALTAS'][student][-1]):
+                        df['FALTAS'][student].pop()
+                        absences_list = df['FALTAS'][student]
+                        if absences_list:
+                            tot_absences = sum(absences_list)
+                        else:
+                            tot_absences = 0.0
+                    else:
+                        tot_absences = df['FALTAS'][student][-1] if isinstance(df['FALTAS'][student], list) else 0.0
 
                     shift = shift.replace("Turno:", "").strip() if shift else None
+
 
                     student_class_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, str(col) + str(shift) + str(self.student_year)))
                     students.append({
