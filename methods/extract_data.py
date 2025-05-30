@@ -13,6 +13,7 @@ class ExtractData:
         self.__workbook = None
         self.__sheet = None
         self.student_year = None
+        self.file_type = None
         self.__student_dict = dict()
         self.disciplines_columns = ['Língua Portuguesa', 'Artes', 'Ciências', 'Matemática', 'Geografia', 'História',
                                     'Cidadania/Ética', 'Inglês','MATEMÁTICA','HIST. e GEOGR.','CIÊNCIAS','PORTUGUÊS']
@@ -22,9 +23,11 @@ class ExtractData:
         if self.__file.endswith('.xls'):
             self.__workbook = xlrd.open_workbook(self.__file)
             self.__sheet = self.__workbook.sheet_by_index(0)
+            self.file_type = 'xls'
         elif self.__file.endswith('.xlsx'):
             self.__workbook = openpyxl.load_workbook(self.__file)
             self.__sheet = self.__workbook.active
+            self.file_type = 'xlsx'
 
     def __get_data(self):
         """Extrai os dados do arquivo .xls ou .xlsx."""
@@ -143,7 +146,8 @@ class ExtractData:
 
         # Tabela de notas
         from tables.grades import Grades
-        grades = Grades(df, disciplines_id, self.student_year, self.disciplines_columns).create_schema()
+        grades = Grades(df, disciplines_id, self.student_year, self.disciplines_columns,
+                        self.file_type).create_schema()
 
         # Tabela de endereços
         from tables.address import Address
