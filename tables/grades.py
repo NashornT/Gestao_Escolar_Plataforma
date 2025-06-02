@@ -39,128 +39,66 @@ class Grades:
                     # Normaliza as notas
                     grades_list = self.__normalize_grades(grades_list)
 
-                    # Inicializa as variáveis para as notas
-                    first_grade = first_grade_rc = second_grade = second_grade_rc = None
-                    third_grade = third_grade_rc = fourth_grade = fourth_grade_rc = None
-                    sum_grades = average_grades = None
+                    skip_grade = False
+                    grades_dict = {"notas":[], "notas_rec": [], "notas_final": []}
+                    skip_index = 0
+                    for index, grade in enumerate(grades_list):
+                        if grade <= 10.0:
+                            if skip_grade is True:
+                                if skip_index == 0:
+                                    skip_grade = False
+                                else:
+                                    skip_index -= 1
+                                continue
+                            elif self.file_type == 'xls' and (index == len_grades - 2 or index == len_grades - 1):
+                                # Últimos elementos são a soma e a média, não são notas
+                                continue
 
+                            if grade < 6:
+                                grade_rec = grades_list[index + 1] if index + 1 < len_grades else 0.0
 
-                    if self.file_type == 'xls':
-                        for index, grade in enumerate(grades_list):
-                            if index == len_grades - 2:  # Penúltimo elemento é a soma das notas
-                                sum_grades = grade
-                            elif index == len_grades - 1:  # Último elemento é a média das notas
-                                average_grades = grade
+                                if grade > grade_rec:
+                                    final_grade = grade
+                                else:
+                                    final_grade = grade_rec
+
+                                grades_dict.get("notas").append(grade)
+                                grades_dict.get("notas_rec").append(grade_rec)
+                                grades_dict.get("notas_final").append(final_grade)
+
+                                skip_grade = True
+                                if self.file_type == 'xls' and grade_rec != 0.0:
+                                    skip_index = 1
+
                             else:
-                                # Verifica se a próxima nota é menor e diferente
-                                if index + 1 < len_grades and isinstance(grade, (int, float)):
-                                    next_grade = grades_list[index + 1]
-                                    if isinstance(next_grade, (int, float)) and next_grade < grade:
-                                        grade = max(grade, next_grade)
+                                grades_dict.get("notas").append(grade)
+                                grades_dict.get("notas_rec").append(0.0)
+                                grades_dict.get("notas_final").append(grade)
+                                if self.file_type == 'xls':
+                                    skip_grade = True
 
-                                # Atribui as notas às variáveis correspondentes
-                                if index == 0:
-                                    first_grade = grade
-                                elif index == 1:
-                                    first_grade_rc = grade
-                                elif index == 2:
-                                    second_grade = grade
-                                elif index == 3:
-                                    second_grade_rc = grade
-                                elif index == 4:
-                                    third_grade = grade
-                                elif index == 5:
-                                    third_grade_rc = grade
-                                elif index == 6:
-                                    fourth_grade = grade
-                                elif index == 7:
-                                    fourth_grade_rc = grade
+                    sum_grades = sum(grades_dict.get("notas_final"))
+                    average_grades = sum_grades / 4 if sum_grades else 0.0
 
-                        # Adiciona os dados processados à lista de notas
-                        grades.append({
+                    grades.append({
                             "nota_id": str(uuid.uuid4()),
                             "aluno_id": student_id,
                             "ano_letivo": self.student_year,
                             "disciplina_id": self.disciplines_id[discipline],
-                            "nota_1_bimestre": first_grade,
-                            "nota_1_bimestre_recuperacao": first_grade_rc,
-                            "nota_2_bimestre": second_grade,
-                            "nota_2_bimestre_recuperacao": second_grade_rc,
-                            "nota_3_bimestre": third_grade,
-                            "nota_3_bimestre_recuperacao": third_grade_rc,
-                            "nota_4_bimestre": fourth_grade,
-                            "nota_4_bimestre_recuperacao": fourth_grade_rc,
+                            "nota_1_bimestre": grades_dict.get("notas")[0] if len(grades_dict.get("notas")) > 0 else 0.0,
+                            "nota_1_bimestre_recuperacao": grades_dict.get("notas_rec")[0] if len(grades_dict.get("notas_rec")) > 0 else 0.0,
+                            "nota_1_bimestre_final": grades_dict.get("notas_final")[0] if len(grades_dict.get("notas_final")) > 0 else 0.0,
+                            "nota_2_bimestre": grades_dict.get("notas")[1] if len(grades_dict.get("notas")) > 1 else 0.0,
+                            "nota_2_bimestre_recuperacao": grades_dict.get("notas_rec")[1] if len(grades_dict.get("notas_rec")) > 1 else 0.0,
+                            "nota_2_bimestre_final": grades_dict.get("notas_final")[1] if len(grades_dict.get("notas_final")) > 1 else 0.0,
+                            "nota_3_bimestre": grades_dict.get("notas")[2] if len(grades_dict.get("notas")) > 2 else 0.0,
+                            "nota_3_bimestre_recuperacao": grades_dict.get("notas_rec")[2] if len(grades_dict.get("notas_rec")) > 2 else 0.0,
+                            "nota_3_bimestre_final": grades_dict.get("notas_final")[2] if len(grades_dict.get("notas_final")) > 2 else 0.0,
+                            "nota_4_bimestre": grades_dict.get("notas")[3] if len(grades_dict.get("notas")) > 3 else 0.0,
+                            "nota_4_bimestre_recuperacao": grades_dict.get("notas_rec")[3] if len(grades_dict.get("notas_rec")) > 3 else 0.0,
+                            "nota_4_bimestre_final": grades_dict.get("notas_final")[3] if len(grades_dict.get("notas_final")) > 3 else 0.0,
                             "nota_total": sum_grades,
                             "media_final": average_grades,
                         })
-                    else:
-                        if len(grades_list) > 4:
-                            for index, grade in enumerate(grades_list):
-                                if index != 0 and grade < 6 and index % 2 != 0:
-                                    grade = max(grade, grades_list[index - 1])
-
-                                if index == 0:
-                                    first_grade = grade
-                                elif index == 1:
-                                    first_grade_rc = grade
-                                elif index == 2:
-                                    second_grade = grade
-                                elif index == 3:
-                                    second_grade_rc = grade
-                                elif index == 4:
-                                    third_grade = grade
-                                elif index == 5:
-                                    third_grade_rc = grade
-                                elif index == 6:
-                                    fourth_grade = grade
-                                elif index == 7:
-                                    fourth_grade_rc = grade
-
-                            sum_grades = (
-                                    (first_grade_rc if first_grade_rc else 0) +
-                                    (second_grade_rc if second_grade_rc else second_grade if second_grade else 0) +
-                                    (third_grade_rc if third_grade_rc else third_grade if third_grade else 0) +
-                                    (fourth_grade_rc if fourth_grade_rc else fourth_grade if fourth_grade else 0)
-                            )
-
-                            average_grades = sum_grades / 4 if sum_grades else 0.0
-
-                            grades.append({
-                                "nota_id": str(uuid.uuid4()),
-                                "aluno_id": student_id,
-                                "ano_letivo": self.student_year,
-                                "disciplina_id": self.disciplines_id[discipline],
-                                "nota_1_bimestre": first_grade,
-                                "nota_1_bimestre_recuperacao": first_grade_rc,
-                                "nota_2_bimestre": second_grade,
-                                "nota_2_bimestre_recuperacao": second_grade_rc,
-                                "nota_3_bimestre": third_grade,
-                                "nota_3_bimestre_recuperacao": third_grade_rc,
-                                "nota_4_bimestre": fourth_grade,
-                                "nota_4_bimestre_recuperacao": fourth_grade_rc,
-                                "nota_total": sum_grades,
-                                "media_final": average_grades,
-                            })
-
-                        elif len(grades_list) == 4:
-                            sum_grades = sum(grades_list)
-                            average_grades = sum_grades / 4 if sum_grades else 0.0
-                            grades.append({
-                                "nota_id": str(uuid.uuid4()),
-                                "aluno_id": student_id,
-                                "ano_letivo": self.student_year,
-                                "disciplina_id": self.disciplines_id[discipline],
-                                "nota_1_bimestre": grades_list[0],
-                                "nota_1_bimestre_recuperacao": 0.0,
-                                "nota_2_bimestre": grades_list[1],
-                                "nota_2_bimestre_recuperacao": 0.0,
-                                "nota_3_bimestre": grades_list[2],
-                                "nota_3_bimestre_recuperacao": 0.0,
-                                "nota_4_bimestre": grades_list[3],
-                                "nota_4_bimestre_recuperacao": 0.0,
-                                "nota_total": sum_grades,
-                                "media_final": average_grades,
-                            })
-                        pass
 
         return grades

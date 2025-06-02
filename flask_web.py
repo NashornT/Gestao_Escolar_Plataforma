@@ -7,7 +7,7 @@ from methods.download_data import download_school_data
 from datetime import datetime
 
 UPLOAD_FOLDER = 'Files'
-ALLOWED_EXTENSIONS = {'xls'}
+ALLOWED_EXTENSIONS = {'xls','xlsx'}
 
 app = Flask(__name__)
 app.secret_key = 'sua_chave_super_secreta'
