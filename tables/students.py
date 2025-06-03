@@ -1,4 +1,5 @@
 import uuid
+from methods.generate_uuid import generate_uuid
 
 class Students:
     def __init__(self, dataframe, class_columns, student_year):
@@ -15,6 +16,7 @@ class Students:
         df = self.dataframe
         students = list()
         shift = None
+        shifts_dict = dict()
         for student in df.index:
             for col in self.class_columns:
                 if col in df.columns:
@@ -28,26 +30,26 @@ class Students:
                     if col == "6° Ano de Escolaridade - 601" or col == "6° Ano de Escolaridade - 602":
                         shift = "Manhã"
 
-                    if "=SUM" in str(df['FALTAS'][student][-1]):
-                        df['FALTAS'][student].pop()
-                        absences_list = df['FALTAS'][student]
-                        if absences_list:
-                            tot_absences = sum(absences_list)
+                    if isinstance(df['FALTAS'][student], list):
+                        if "=SUM" in str(df['FALTAS'][student][-1]):
+                            df['FALTAS'][student].pop()
+                            absences_list = df['FALTAS'][student]
+                            if absences_list:
+                                tot_absences = sum(absences_list)
+                            else:
+                                tot_absences = 0.0
                         else:
-                            tot_absences = 0.0
+                            tot_absences = df['FALTAS'][student][-1] if isinstance(df['FALTAS'][student], list) else 0.0
                     else:
-                        tot_absences = df['FALTAS'][student][-1] if isinstance(df['FALTAS'][student], list) else 0.0
+                        tot_absences = 0.0
 
                     shift = shift.replace("Turno:", "").strip() if shift else None
+                    shifts_dict.update({student: shift})
 
-
-                    student_class_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, str(col) + str(shift) + str(self.student_year)))
                     students.append({
-                        "aluno_id": str(uuid.uuid5(uuid.NAMESPACE_DNS, str(student))),  # Gerar um ID único
+                        "aluno_id": generate_uuid(str(student)),  # Gerar um ID único
                         "aluno": student.replace("Aluno(a):", "").strip(),
-                        # "nivel_escolar": col,
-                        # "ano_escolar": self.__student_year,
-                        "turma_id": student_class_id,
+                        "turma_id": generate_uuid(str(col) + str(shift) + str(self.student_year)),
                         "total_faltas": tot_absences,
                         "matricula": "NOT IMPLEMENTED",
                         "resonsavel_id": "NOT IMPLEMENTED",
@@ -57,4 +59,4 @@ class Students:
                         "status": "Ativo"
                     })
 
-        return students, shift
+        return students, shifts_dict

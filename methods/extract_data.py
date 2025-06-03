@@ -138,7 +138,7 @@ class ExtractData:
 
         # Tabela de alunos
         from tables.students import Students
-        students, shift = Students(df, class_columns, self.student_year).create_schema()
+        students, shifts_dict = Students(df, class_columns, self.student_year).create_schema()
 
         # Tabela de disciplinas
         from tables.disciplinas import Disciplina
@@ -163,7 +163,7 @@ class ExtractData:
 
         # Tabela de turmas
         from tables.class_students import ClassStudents
-        classes = ClassStudents(df, self.student_year, class_columns, shift).create_schema()
+        classes = ClassStudents(df, self.student_year, class_columns, shifts_dict).create_schema()
 
         # Tabelas intermediárias
         from tables.intermediate_tables import IntermediateTables
@@ -171,7 +171,7 @@ class ExtractData:
          disciplines_classes,
          professors_disciplines) = IntermediateTables(df, self.disciplines_columns,
                                                       disciplines_id,
-                                                      class_columns, self.student_year, shift).create_schema()
+                                                      class_columns, self.student_year, shifts_dict).create_schema()
 
 
         return (pd.DataFrame(students), pd.DataFrame(disciplines), pd.DataFrame(grades), pd.DataFrame(address),

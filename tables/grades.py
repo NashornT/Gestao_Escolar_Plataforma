@@ -1,4 +1,5 @@
 import uuid
+from methods.generate_uuid import generate_uuid
 
 class Grades:
     def __init__(self, dataframe, disciplines_id, student_year, disciplines_columns, file_type):
@@ -30,7 +31,6 @@ class Grades:
         grades = list()
         df = self.dataframe
         for student in df.index:
-            student_id = str(hash(student))
             for discipline in self.disciplines_columns:
                 if discipline in df.columns:
                     len_grades = len(df.loc[student, discipline])
@@ -79,10 +79,15 @@ class Grades:
 
                     sum_grades = sum(grades_dict.get("notas_final"))
                     average_grades = sum_grades / 4 if sum_grades else 0.0
+                    student_id = generate_uuid(str(student))
+
+                    # print("notas")
+                    # print(student)
+                    # print(student_id)
 
                     grades.append({
                             "nota_id": str(uuid.uuid4()),
-                            "aluno_id": student_id,
+                            "aluno_id": generate_uuid(str(student)),
                             "ano_letivo": self.student_year,
                             "disciplina_id": self.disciplines_id[discipline],
                             "nota_1_bimestre": grades_dict.get("notas")[0] if len(grades_dict.get("notas")) > 0 else 0.0,

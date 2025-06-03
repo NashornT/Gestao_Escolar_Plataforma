@@ -1,4 +1,4 @@
-import uuid
+from methods.generate_uuid import generate_uuid
 
 class Address:
     def __init__(self, dataframe):
@@ -14,7 +14,7 @@ class Address:
         for student in df.index:
             #if "ENDEREÇO" in df.columns:
             address.append({
-                "aluno_id": str(uuid.uuid5(uuid.NAMESPACE_DNS, str(student))),
+                "aluno_id": generate_uuid(str(student)),
                 "logradouro": "NOT IMPLEMENTED",
                 "numero": "NOT IMPLEMENTED",
                 "complemento": "NOT IMPLEMENTED",

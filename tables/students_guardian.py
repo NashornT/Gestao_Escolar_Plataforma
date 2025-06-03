@@ -1,4 +1,4 @@
-import uuid
+from methods.generate_uuid import generate_uuid
 
 class StudentsGuardian:
     def __init__(self, dataframe):
@@ -14,7 +14,7 @@ class StudentsGuardian:
         for student in df.index:
             # if "RESPONSÁVEL" in df.columns:
             students_guardian.append({
-                "aluno_id": str(hash(student)),
+                "aluno_id": generate_uuid(student),
                 "nome": "NOT IMPLEMENTED",
                 "telefone": "NOT IMPLEMENTED",
                 "endereco_id": "NOT IMPLEMENTED",

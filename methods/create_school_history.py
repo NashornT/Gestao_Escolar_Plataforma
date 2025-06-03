@@ -6,24 +6,24 @@ from storage.db_keys import user, password, host, port, database
 
 
 def school_history(studant):
-
-
     # Conexão com o banco de dados
     engine = create_engine(f'mysql+pymysql://{user}:{password}@{host}:{port}/{database}?charset=utf8mb4')
 
     # Consulta os dados do aluno no banco
     query = f"""
-        SELECT a.aluno, m.disciplina, a.turno, a.nivel_escolar, a.total_faltas, a.ano_escolar, 
-               n.primeiro_bimestre_nota, n.primeiro_bimestre_nota_recuperacao,
-               n.segundo_bimestre_nota, n.segundo_bimestre_nota_recuperacao,
-               n.terceiro_bimestre_nota, n.terceiro_bimestre_nota_recuperacao,
-               n.quarto_bimestre_nota, n.quarto_bimestre_nota_recuperacao,
-               n.media_notas, n.total_notas
+        SELECT a.aluno, a.total_faltas, t.ano_escolar, t.turma, t.turno,
+               m.disciplina, m.disciplina_id,
+               n.nota_1_bimestre, n.nota_1_bimestre_recuperacao, n.nota_1_bimestre_final,
+               n.nota_2_bimestre, n.nota_2_bimestre_recuperacao, n.nota_2_bimestre_final,
+               n.nota_3_bimestre, n.nota_3_bimestre_recuperacao, n.nota_3_bimestre_final,
+               n.nota_4_bimestre, n.nota_4_bimestre_recuperacao, n.nota_4_bimestre_final,
+               n.nota_total, n.media_final
         FROM alunos a
         JOIN notas n ON a.aluno_id = n.aluno_id
+        JOIN turmas t ON a.turma_id = t.turma_id
         JOIN materias m ON n.disciplina_id = m.disciplina_id
         WHERE a.aluno = '{studant}'
-        """
+    """
     df = pd.read_sql(query, con=engine)
 
     if df.empty:
