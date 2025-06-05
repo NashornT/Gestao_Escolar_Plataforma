@@ -79,11 +79,6 @@ class Grades:
 
                     sum_grades = sum(grades_dict.get("notas_final"))
                     average_grades = sum_grades / 4 if sum_grades else 0.0
-                    student_id = generate_uuid(str(student))
-
-                    # print("notas")
-                    # print(student)
-                    # print(student_id)
 
                     grades.append({
                             "nota_id": str(uuid.uuid4()),

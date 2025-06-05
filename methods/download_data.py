@@ -12,7 +12,7 @@ def download_school_data():
     # Consulta os dados no banco
     query = f"""
         SELECT a.aluno, a.total_faltas, t.ano_escolar, t.turma, t.turno,
-               m.disciplina, m.disciplina_id,
+               m.disciplina,
                n.nota_1_bimestre, n.nota_1_bimestre_recuperacao, n.nota_1_bimestre_final,
                n.nota_2_bimestre, n.nota_2_bimestre_recuperacao, n.nota_2_bimestre_final,
                n.nota_3_bimestre, n.nota_3_bimestre_recuperacao, n.nota_3_bimestre_final,
@@ -20,7 +20,8 @@ def download_school_data():
                n.nota_total, n.media_final
         FROM alunos a
         JOIN notas n ON a.aluno_id = n.aluno_id
-        JOIN turmas t ON a.turma_id = t.turma_id
+        JOIN alunos_turma at ON a.aluno_id = at.aluno_id
+        JOIN turmas t ON at.turma_id = t.turma_id
         JOIN materias m ON n.disciplina_id = m.disciplina_id
     """
     df = pd.read_sql(query, con=engine)

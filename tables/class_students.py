@@ -15,14 +15,18 @@ class ClassStudents:
         classes = list()
         df = self.dataframe
         student_class = self.class_columns[0]
+        prev_element = None
         for student in df.index:
             shift = self.shifts_dict.get(student, None)
             student_class_id = generate_uuid(str(student_class) + str(shift) + str(self.student_year))
+            if prev_element == student_class_id:
+                continue
             classes.append({
                 "turma": student_class,
                 "turma_id": student_class_id,
                 "ano_escolar": self.student_year,
                 "turno": shift,
             })
+            prev_element = student_class_id
 
         return classes

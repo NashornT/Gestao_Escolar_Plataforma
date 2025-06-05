@@ -49,7 +49,6 @@ class Students:
                     students.append({
                         "aluno_id": generate_uuid(str(student)),  # Gerar um ID único
                         "aluno": student.replace("Aluno(a):", "").strip(),
-                        "turma_id": generate_uuid(str(col) + str(shift) + str(self.student_year)),
                         "total_faltas": tot_absences,
                         "matricula": "NOT IMPLEMENTED",
                         "resonsavel_id": "NOT IMPLEMENTED",
