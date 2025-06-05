@@ -5,41 +5,116 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gestão Escolar</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.0/socket.io.js"></script>
+    <style>
+        body {
+            background-color: #2c3e50; /* Um azul escuro mais agradável */
+            color: #ecf0f1; /* Texto claro */
+        }
+        .card {
+            border-radius: 0.75rem; /* Cantos mais arredondados */
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); /* Sombra sutil */
+        }
+        .card-header {
+            border-top-left-radius: 0.75rem;
+            border-top-right-radius: 0.75rem;
+            font-weight: bold;
+        }
+        .bg-primary { background-color: #3498db !important; } /* Azul primário */
+        .bg-info { background-color: #1abc9c !important; } /* Verde-água para info */
+        .bg-warning { background-color: #f39c12 !important; } /* Laranja para warning */
+        .bg-success { background-color: #2ecc71 !important; } /* Verde para success */
+        .bg-danger { background-color: #e74c3c !important; } /* Vermelho para danger */
+        .bg-secondary { background-color: #34495e !important; } /* Azul escuro secundário para cards */
+        .text-white { color: #ecf0f1 !important; }
+        .text-dark { color: #2c3e50 !important; }
+
+        .btn-success { background-color: #2ecc71; border-color: #2ecc71; }
+        .btn-primary { background-color: #3498db; border-color: #3498db; }
+        .btn-light { background-color: #ecf0f1; border-color: #ecf0f1; color: #2c3e50; }
+        .btn-light:hover { background-color: #bdc3c7; border-color: #bdc3c7; }
+
+        /* Estilos para os alertas */
+        .alert {
+            padding: 1rem 1.25rem;
+            margin-bottom: 1rem;
+            border: 1px solid transparent;
+            border-radius: 0.25rem;
+        }
+        .alert-success {
+            color: #155724;
+            background-color: #d4edda;
+            border-color: #c3e6cb;
+        }
+        .alert-info {
+            color: #0c5460;
+            background-color: #d1ecf1;
+            border-color: #bee5eb;
+        }
+        .alert-warning {
+            color: #856404;
+            background-color: #fff3cd;
+            border-color: #ffeeba;
+        }
+        .alert-danger {
+            color: #721c24;
+            background-color: #f8d7da;
+            border-color: #f5c6cb;
+        }
+        /* Estilo para o spinner de carregamento */
+        .spinner-border {
+            width: 1.5rem;
+            height: 1.5rem;
+            vertical-align: text-bottom;
+            border: .25em solid currentColor;
+            border-right-color: transparent;
+            border-radius: 50%;
+            -webkit-animation: .75s linear infinite spinner-border;
+            animation: .75s linear infinite spinner-border;
+        }
+        @-webkit-keyframes spinner-border {
+            to { -webkit-transform: rotate(360deg); transform: rotate(360deg); }
+        }
+        @keyframes spinner-border {
+            to { -webkit-transform: rotate(360deg); transform: rotate(360deg); }
+        }
+    </style>
 </head>
 <body class="bg-dark text-white">
     <div class="container my-5">
         <h1 class="text-center mb-4">Gestão Escolar</h1>
 
-        <!-- Mensagens de Feedback -->
-        <div class="container my-3">
-            {% with messages = get_flashed_messages() %}
+        <div id="flash-messages-container" class="container my-3">
+            {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
-                <div class="alert alert-info" role="alert">
-                    {% for message in messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }}" role="alert">
                         <p>{{ message }}</p>
-                    {% endfor %}
-                </div>
+                    </div>
+                {% endfor %}
             {% endif %}
             {% endwith %}
         </div>
 
-        <!-- Seção para Processar Arquivos -->
         <div class="card mb-4 bg-secondary text-white">
             <div class="card-header bg-primary text-white">
                 <h2>Processar Arquivos</h2>
             </div>
             <div class="card-body">
-                <form action="/" method="post" enctype="multipart/form-data">
+                <form id="process-form" action="/" method="post" enctype="multipart/form-data">
                     <div class="mb-3">
                         <label for="files" class="form-label">Selecione os arquivos (.xls|.xlsx):</label>
                         <input type="file" name="files" id="files" class="form-control" multiple>
+                        <input type="hidden" name="socket_id" id="socket_id_input">
                     </div>
-                    <button type="submit" class="btn btn-success">Processar</button>
+                    <button type="submit" class="btn btn-success" id="process-button">
+                        <span id="button-text">Processar</span>
+                        <span id="spinner" class="spinner-border spinner-border-sm" role="status" aria-hidden="true" style="display: none;"></span>
+                    </button>
                 </form>
             </div>
         </div>
 
-        <!-- Seção para Gerar Relatório -->
         <div class="card mb-4 bg-secondary text-white">
             <div class="card-header bg-info text-white">
                 <h2>Gerar Relatório</h2>
@@ -49,7 +124,6 @@
             </div>
         </div>
 
-        <!-- Seção para Baixar Histórico -->
         <div class="card bg-secondary text-white">
             <div class="card-header bg-warning text-dark">
                 <h2>Baixar Histórico Escolar</h2>
@@ -58,14 +132,13 @@
                 <form action="/historico" method="post">
                     <div class="mb-3">
                         <label for="aluno" class="form-label">Nome do Aluno:</label>
-                        <input type="text" name="aluno" id="aluno" class="form-control" placeholder="Digite o nome do aluno" required>
+                        <input type="text" name="aluno" id="aluno" class="form-control" placeholder="Digite o nome completo do aluno" required>
                     </div>
                     <button type="submit" class="btn btn-primary">Baixar Histórico</button>
                 </form>
             </div>
         </div>
 
-        <!-- Seção para Baixar Dados -->
         <div class="card bg-secondary text-white my-4">
             <div class="card-header bg-success text-white">
                 <h2>Baixar Dados</h2>
@@ -78,5 +151,84 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        var socket = io(); // Conecta ao servidor Socket.IO
+
+        // Armazenar o SID quando o servidor emitir
+        let currentSocketId = null;
+
+        socket.on('connect', function() {
+            console.log('Conectado ao Socket.IO!');
+        });
+
+        socket.on('my_response', function(msg) {
+            console.log('Mensagem do servidor:', msg);
+            if (msg.sid) {
+                currentSocketId = msg.sid;
+                document.getElementById('socket_id_input').value = currentSocketId; // Preenche o campo oculto
+            }
+        });
+
+        // Função para adicionar mensagem flash dinamicamente
+        function addFlashMessage(message, category) {
+            const container = document.getElementById('flash-messages-container');
+            const alertDiv = document.createElement('div');
+            // Usar 'alert-dismissible' e 'fade show' para que o usuário possa fechar e ter animação
+            alertDiv.className = `alert alert-${category} alert-dismissible fade show`;
+            alertDiv.setAttribute('role', 'alert');
+            alertDiv.innerHTML = `<p>${message}</p><button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>`;
+            container.appendChild(alertDiv);
+            // Opcional: remover a mensagem após alguns segundos
+            setTimeout(() => {
+                const bsAlert = new bootstrap.Alert(alertDiv);
+                bsAlert.close();
+            }, 5000); // Mensagem some após 5 segundos
+        }
+
+        // Listener para o evento 'processing_complete' do SocketIO
+        socket.on('processing_complete', function(data) {
+            console.log('Processamento concluído:', data);
+            hideSpinner(); // Esconder o spinner
+            if (data.status === 'success') {
+                addFlashMessage(data.message, 'success');
+            } else if (data.status === 'error') {
+                addFlashMessage(data.message, 'danger');
+            }
+        });
+
+        // Lidar com o envio do formulário de processamento
+        document.getElementById('process-form').addEventListener('submit', function(event) {
+            // Verifica se arquivos foram selecionados
+            const filesInput = document.getElementById('files');
+            if (filesInput.files.length === 0) {
+                addFlashMessage('Nenhum arquivo selecionado para processar.', 'warning');
+                event.preventDefault(); // Impede o envio do formulário se nenhum arquivo for selecionado
+                return;
+            }
+
+            // Exibir o spinner e desabilitar o botão
+            showSpinner();
+            // Preencher o campo oculto com o SID atual antes do envio do formulário
+            document.getElementById('socket_id_input').value = currentSocketId;
+        });
+
+        function showSpinner() {
+            document.getElementById('button-text').style.display = 'none';
+            document.getElementById('spinner').style.display = 'inline-block';
+            document.getElementById('process-button').disabled = true;
+        }
+
+        function hideSpinner() {
+            document.getElementById('button-text').style.display = 'inline';
+            document.getElementById('spinner').style.display = 'none';
+            document.getElementById('process-button').disabled = false;
+        }
+
+        // Adiciona um listener para quando a página é carregada para garantir que o spinner esteja escondido
+        document.addEventListener('DOMContentLoaded', function() {
+            hideSpinner();
+        });
+
+    </script>
 </body>
 </html>
