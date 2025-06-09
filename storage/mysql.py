@@ -40,7 +40,7 @@ def safe_to_sql(df, table_name, engine, index=False):
 
     if table_name in tabelas_existentes:
         print(f"Tabela '{table_name}' encontrada. Inserindo dados com append...")
-        if table_name == "materias":
+        if table_name == "materias" or table_name == "turmas":
             insert_without_duplicates(df,engine,table_name)
         else:
             df.to_sql(table_name, con=engine, if_exists='append', index=index)
@@ -53,23 +53,34 @@ def safe_to_sql(df, table_name, engine, index=False):
 
 def insert_without_duplicates(df, engine, table_name):
     """
-    Insere disciplinas sem duplicatas no banco de dados.
+    Insere registros sem duplicatas no banco de dados.
     :param df: DataFrame a ser inserido
     :param table_name: Nome da tabela no banco
     :param engine: Conexão SQLAlchemy
     """
-    try:
-        db_columns = pd.read_sql(f"SELECT disciplina FROM {table_name}", con=engine)
-        db_columns['disciplina'] = db_columns['disciplina'].str.upper().str.strip().str.replace(' ', '_')
-    except:
-        db_columns = pd.DataFrame(columns=['disciplina'])
+    if table_name == "materias":
+        column = "disciplina"
+    elif table_name == "turmas":
+        column = "turma_id"
+    else:
+        raise ValueError("Tabela não suportada para remoção de duplicatas.")
 
-    # Remove duplicadas já existentes
-    insert = df[~df['disciplina'].isin(db_columns['disciplina'])]
+    try:
+        # Carrega os valores existentes no banco para a coluna relevante
+        db_columns = pd.read_sql(f"SELECT {column} FROM {table_name}", con=engine)
+        db_columns[column] = db_columns[column].str.strip().str.upper()
+    except Exception as e:
+        print(f"Erro ao carregar dados existentes: {e}")
+        db_columns = pd.DataFrame(columns=[column])
+
+    # Padroniza os valores do DataFrame de entrada
+    df[column] = df[column].str.strip().str.upper()
+
+    # Remove duplicatas já existentes no banco
+    insert = df[~df[column].isin(db_columns[column])]
 
     if not insert.empty:
-        print(f"Inserindo {len(insert)} disciplinas novas...")
+        print(f"Inserindo {len(insert)} novos registros na tabela '{table_name}'...")
         insert.to_sql(table_name, con=engine, if_exists='append', index=False)
     else:
-        print("Nenhuma disciplina nova para inserir.")
-
+        print(f"Nenhum registro novo para inserir na tabela '{table_name}'.")

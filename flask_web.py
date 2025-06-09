@@ -1,31 +1,60 @@
-from flask import Flask, render_template, request, redirect, flash, send_file, url_for
+from flask import Flask, render_template, request, redirect, url_for, flash, send_file
+from flask_sqlalchemy import SQLAlchemy
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
 from methods.extract_data import ExtractData
 import os
 import shutil
 from methods.create_school_history import school_history
 from methods.download_data import download_school_data
 from datetime import datetime
-from flask_socketio import SocketIO, emit # Importar SocketIO e emit
+from flask_socketio import SocketIO, emit
+import eventlet # Necessário para async_mode='eventlet'
 
 UPLOAD_FOLDER = 'Files'
 ALLOWED_EXTENSIONS = {'xls', 'xlsx'}
 
 app = Flask(__name__)
-app.secret_key = 'sua_chave_super_secreta' # Mantenha esta chave secreta e considere usar uma variável de ambiente
+app.secret_key = 'sua_chave_super_secreta' # Mantenha esta chave secreta e considere usar uma variável de ambiente em produção
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db' # Nome do seu arquivo de banco de dados SQLite
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False # Desativa o rastreamento de modificações para economizar recursos
 
-# Inicializar SocketIO
-socketio = SocketIO(app, async_mode='eventlet') # Usar eventlet para async_mode
+db = SQLAlchemy(app)
+socketio = SocketIO(app, async_mode='eventlet')
 
-# Limpar a pasta UPLOAD_FOLDER no início da aplicação para garantir um estado limpo
-# Esta parte pode ser refeita para limpar apenas arquivos de processamento anterior,
-# se necessário, para evitar apagar arquivos importantes caso o Flask reinicie.
-# Por enquanto, manteremos como está, mas é algo a considerar.
+# Configuração do Flask-Login
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login' # Define a rota para onde o usuário será redirecionado se não estiver logado
+
+# --- Modelos do Banco de Dados ---
+class User(db.Model, UserMixin):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    password_hash = db.Column(db.String(128), nullable=False)
+    is_admin = db.Column(db.Boolean, default=False) # Exemplo de campo adicional
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+
+    def __repr__(self):
+        return f'<User {self.username}>'
+
+# Callback para recarregar o usuário do Flask-Login
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+# --- Limpeza da pasta de upload (considerar ajustar para produção) ---
 if os.path.exists(UPLOAD_FOLDER):
     shutil.rmtree(UPLOAD_FOLDER)
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-
+# --- Funções Auxiliares ---
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
@@ -47,18 +76,72 @@ def process_files_async(folder_path, sid):
             shutil.rmtree(folder_path)
         os.makedirs(folder_path, exist_ok=True) # Recria a pasta vazia
 
+# --- Rotas da Aplicação ---
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if current_user.is_authenticated:
+        flash('Você já está logado.', 'info')
+        return redirect(url_for('index'))
+
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        confirm_password = request.form.get('confirm_password')
+
+        if not username or not password or not confirm_password:
+            flash('Todos os campos são obrigatórios.', 'danger')
+            return render_template('register.html')
+
+        if password != confirm_password:
+            flash('As senhas não coincidem.', 'danger')
+            return render_template('register.html')
+
+        existing_user = User.query.filter_by(username=username).first()
+        if existing_user:
+            flash('Nome de usuário já existe. Por favor, escolha outro.', 'danger')
+            return render_template('register.html')
+
+        new_user = User(username=username)
+        new_user.set_password(password)
+        db.session.add(new_user)
+        db.session.commit()
+        flash('Cadastro realizado com sucesso! Faça o login.', 'success')
+        return redirect(url_for('login'))
+    return render_template('register.html')
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if current_user.is_authenticated:
+        flash('Você já está logado.', 'info')
+        return redirect(url_for('index'))
+
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+
+        user = User.query.filter_by(username=username).first()
+        if user and user.check_password(password):
+            login_user(user)
+            flash(f'Bem-vindo, {user.username}!', 'success')
+            next_page = request.args.get('next') # Redireciona para a página que o usuário tentou acessar
+            return redirect(next_page or url_for('index'))
+        else:
+            flash('Login ou senha incorretos.', 'danger')
+    return render_template('login.html')
+
+@app.route('/logout')
+@login_required # Só pode acessar se estiver logado
+def logout():
+    logout_user()
+    flash('Você foi desconectado.', 'info')
+    return redirect(url_for('login'))
 
 @app.route('/', methods=['GET', 'POST'])
+@login_required
 def index():
     if request.method == 'POST':
-        # Captura o Session ID do SocketIO se disponível
-        # Se não houver um SID (por exemplo, na primeira carga da página sem SocketIO conectado),
-        # você pode lidar com isso ou garantir que o SocketIO esteja sempre conectado.
-        # Por enquanto, faremos a verificação no JavaScript.
-        # O SID será passado do cliente via um campo oculto no formulário ou através do JavaScript após a conexão do SocketIO.
-        # Para simplificar agora, vamos assumir que o `request.sid` pode ser usado se o SocketIO estiver integrado
-        # na mesma requisição POST, mas é mais comum o SocketIO ter um SID separado.
-        # Uma abordagem mais robusta é usar um campo oculto no formulário.
+        # ... (Sua lógica existente para processar arquivos) ...
         client_sid = request.form.get('socket_id') # Adicionar um campo oculto no form para o SID
 
         if 'files' not in request.files:
@@ -86,8 +169,6 @@ def index():
 
         if files_saved:
             if client_sid:
-                # Inicia o processamento em uma nova thread, passando o SID
-                # Flask-SocketIO lida com o contexto de aplicação para emissões
                 socketio.start_background_task(process_files_async, app.config['UPLOAD_FOLDER'], client_sid)
                 flash('Processamento dos arquivos iniciado em segundo plano.', 'info')
             else:
@@ -99,12 +180,14 @@ def index():
 
     return render_template('index.html')
 
+
 @app.route('/relatorio', methods=['GET'])
+@login_required # Protege a rota
 def relatorio():
     return redirect("http://localhost:8501")
 
-
 @app.route('/historico', methods=['POST'])
+@login_required # Protege a rota
 def historico():
     aluno_nome = request.form.get('aluno')
 
@@ -126,6 +209,7 @@ def historico():
 
 
 @app.route('/baixar_dados', methods=['GET'])
+@login_required # Protege a rota
 def baixar_dados():
     output, error = download_school_data()
 
@@ -139,9 +223,9 @@ def baixar_dados():
         flash(f'Erro ao enviar o arquivo de dados: {str(e)}', 'danger')
         return redirect(url_for('index'))
 
+# --- SocketIO Handlers (permanecem os mesmos) ---
 @socketio.on('connect')
 def test_connect():
-    # Emitir o SID de volta para o cliente quando ele se conectar
     emit('my_response', {'data': 'Conectado', 'sid': request.sid})
     print(f'Cliente conectado: {request.sid}')
 
@@ -150,6 +234,16 @@ def test_disconnect():
     print('Cliente desconectado')
 
 
+# --- Inicialização da Aplicação ---
 if __name__ == '__main__':
-    # Use socketio.run(app) em vez de app.run(debug=True)
-    socketio.run(app, debug=True, allow_unsafe_werkzeug=True) # allow_unsafe_werkzeug=True para evitar aviso em debug
+    with app.app_context():
+        db.create_all() # Cria as tabelas do banco de dados (se não existirem)
+        # Opcional: Criar um usuário admin inicial se o banco estiver vazio
+        if User.query.filter_by(username='admin').first() is None:
+            admin_user = User(username='admin', is_admin=True)
+            admin_user.set_password('admin123') # Troque por uma senha forte!
+            db.session.add(admin_user)
+            db.session.commit()
+            print("Usuário 'admin' criado com senha 'admin123'. Por favor, altere em produção!")
+
+    socketio.run(app, debug=True, allow_unsafe_werkzeug=True)
