@@ -9,6 +9,7 @@ from methods.create_school_history import school_history
 from methods.download_data import download_school_data
 from datetime import datetime
 from flask_socketio import SocketIO, emit
+from methods.logging_config import setup_logging
 import eventlet # Necessário para async_mode='eventlet'
 
 UPLOAD_FOLDER = 'Files'
@@ -22,6 +23,7 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False # Desativa o rastreamento d
 
 db = SQLAlchemy(app)
 socketio = SocketIO(app, async_mode='eventlet')
+logger = setup_logging() # Configura o logger
 
 # Configuração do Flask-Login
 login_manager = LoginManager()
@@ -227,11 +229,11 @@ def baixar_dados():
 @socketio.on('connect')
 def test_connect():
     emit('my_response', {'data': 'Conectado', 'sid': request.sid})
-    print(f'Cliente conectado: {request.sid}')
+    logger.info(f'Cliente conectado: {request.sid}')
 
 @socketio.on('disconnect')
 def test_disconnect():
-    print('Cliente desconectado')
+    logger.info(f'Cliente desconectado')
 
 
 # --- Inicialização da Aplicação ---
@@ -244,6 +246,7 @@ if __name__ == '__main__':
             admin_user.set_password('admin123') # Troque por uma senha forte!
             db.session.add(admin_user)
             db.session.commit()
-            print("Usuário 'admin' criado com senha 'admin123'. Por favor, altere em produção!")
+            logger.info(f"Usuário 'admin' criado com senha 'admin123'. Por favor, altere em produção!")
+
 
     socketio.run(app, debug=True, allow_unsafe_werkzeug=True)

@@ -1,6 +1,9 @@
 import pandas as pd
 from sqlalchemy import create_engine, inspect
 from storage.db_keys import user, password, host, port, database
+from methods.logging_config import setup_logging
+
+logger = setup_logging()
 
 def send_to_mysql(**kwargs):
 
@@ -22,7 +25,7 @@ def send_to_mysql(**kwargs):
         if kwargs.get(table) is not None:
             safe_to_sql(kwargs.get(table), tables[table], engine, index=False)
         else:
-            print(f"DataFrame '{table}' não encontrado. Pulando a inserção.")
+            logger.info(f"DataFrame '{table}' não encontrado. Pulando a inserção.")
 
 
 def safe_to_sql(df, table_name, engine, index=False):
@@ -39,16 +42,16 @@ def safe_to_sql(df, table_name, engine, index=False):
     tabelas_existentes = inspector.get_table_names()
 
     if table_name in tabelas_existentes:
-        print(f"Tabela '{table_name}' encontrada. Inserindo dados com append...")
+        logger.info(f"Tabela '{table_name}' encontrada. Inserindo dados com append...")
         if table_name == "materias" or table_name == "turmas":
             insert_without_duplicates(df,engine,table_name)
         else:
             df.to_sql(table_name, con=engine, if_exists='append', index=index)
     else:
-        print(f"Tabela '{table_name}' não encontrada. Criando a tabela com replace...")
+        logger.info(f"Tabela '{table_name}' não encontrada. Criando a tabela com replace...")
         df.to_sql(table_name, con=engine, if_exists='replace', index=index)
 
-    print(f"Dados enviados para a tabela '{table_name}' com sucesso!\n")
+    logger.info(f"Dados enviados para a tabela '{table_name}' com sucesso!\n")
 
 
 def insert_without_duplicates(df, engine, table_name):
@@ -70,7 +73,7 @@ def insert_without_duplicates(df, engine, table_name):
         db_columns = pd.read_sql(f"SELECT {column} FROM {table_name}", con=engine)
         db_columns[column] = db_columns[column].str.strip().str.upper()
     except Exception as e:
-        print(f"Erro ao carregar dados existentes: {e}")
+        logger.info(f"Erro ao carregar dados existentes: {e}")
         db_columns = pd.DataFrame(columns=[column])
 
     # Padroniza os valores do DataFrame de entrada
@@ -80,7 +83,7 @@ def insert_without_duplicates(df, engine, table_name):
     insert = df[~df[column].isin(db_columns[column])]
 
     if not insert.empty:
-        print(f"Inserindo {len(insert)} novos registros na tabela '{table_name}'...")
+        logger.info(f"Inserindo {len(insert)} novos registros na tabela '{table_name}'...")
         insert.to_sql(table_name, con=engine, if_exists='append', index=False)
     else:
-        print(f"Nenhum registro novo para inserir na tabela '{table_name}'.")
+        logger.info(f"Nenhum registro novo para inserir na tabela '{table_name}'.")
