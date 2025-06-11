@@ -5,6 +5,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from methods.extract_data import ExtractData
 import os
 import shutil
+import time
 from methods.create_school_history import school_history
 from methods.download_data import download_school_data
 from datetime import datetime
@@ -16,26 +17,24 @@ UPLOAD_FOLDER = 'Files'
 ALLOWED_EXTENSIONS = {'xls', 'xlsx'}
 
 app = Flask(__name__)
-app.secret_key = 'sua_chave_super_secreta' # Mantenha esta chave secreta e considere usar uma variável de ambiente em produção
+app.secret_key = os.environ.get('SECRET_KEY', 'dev_key')
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db' # Nome do seu arquivo de banco de dados SQLite
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False # Desativa o rastreamento de modificações para economizar recursos
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 socketio = SocketIO(app, async_mode='eventlet')
-logger = setup_logging() # Configura o logger
+logger = setup_logging()
 
-# Configuração do Flask-Login
 login_manager = LoginManager()
 login_manager.init_app(app)
-login_manager.login_view = 'login' # Define a rota para onde o usuário será redirecionado se não estiver logado
+login_manager.login_view = 'login'
 
-# --- Modelos do Banco de Dados ---
 class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(128), nullable=False)
-    is_admin = db.Column(db.Boolean, default=False) # Exemplo de campo adicional
+    is_admin = db.Column(db.Boolean, default=False)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -46,39 +45,27 @@ class User(db.Model, UserMixin):
     def __repr__(self):
         return f'<User {self.username}>'
 
-# Callback para recarregar o usuário do Flask-Login
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
 
-# --- Limpeza da pasta de upload (considerar ajustar para produção) ---
-if os.path.exists(UPLOAD_FOLDER):
-    shutil.rmtree(UPLOAD_FOLDER)
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# --- Funções Auxiliares ---
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def process_files_async(folder_path, sid):
-    """
-    Função para processar arquivos em uma thread separada.
-    Agora recebe o Session ID (sid) para emitir eventos SocketIO.
-    """
     try:
+        time.sleep(0.5)  # Espera para garantir que arquivos estejam salvos
+        logger.info(f"Arquivos detectados para processamento: {os.listdir(folder_path)}")
         ExtractData(folder_path=folder_path).run()
-        # Enviar mensagem de sucesso para o cliente específico
         socketio.emit('processing_complete', {'status': 'success', 'message': 'Arquivos processados com sucesso!'}, room=sid)
     except Exception as e:
-        # Enviar mensagem de erro para o cliente específico
         socketio.emit('processing_complete', {'status': 'error', 'message': f'Ocorreu um erro durante o processamento: {str(e)}'}, room=sid)
     finally:
-        # Limpar a pasta após o processamento, independentemente do sucesso ou falha
-        if os.path.exists(folder_path):
-            shutil.rmtree(folder_path)
-        os.makedirs(folder_path, exist_ok=True) # Recria a pasta vazia
-
-# --- Rotas da Aplicação ---
+        for f in os.listdir(folder_path):
+            os.remove(os.path.join(folder_path, f))
+        logger.info("Pasta de upload limpa após processamento.")
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
@@ -87,12 +74,16 @@ def register():
         return redirect(url_for('index'))
 
     if request.method == 'POST':
-        username = request.form.get('username')
+        username = request.form.get('username').strip()
         password = request.form.get('password')
         confirm_password = request.form.get('confirm_password')
 
         if not username or not password or not confirm_password:
             flash('Todos os campos são obrigatórios.', 'danger')
+            return render_template('register.html')
+
+        if len(password) < 8 or not any(char.isdigit() for char in password) or not any(char.isupper() for char in password) or not any(char.islower() for char in password) or not any(char in "!@#$%^&*()-_=+[]{}|;:'\",.<>?/`~" for char in password):
+            flash('A senha deve ter pelo menos 8 caracteres, incluindo letras maiúsculas, minúsculas, números e caracteres especiais.', 'danger')
             return render_template('register.html')
 
         if password != confirm_password:
@@ -126,14 +117,14 @@ def login():
         if user and user.check_password(password):
             login_user(user)
             flash(f'Bem-vindo, {user.username}!', 'success')
-            next_page = request.args.get('next') # Redireciona para a página que o usuário tentou acessar
+            next_page = request.args.get('next')
             return redirect(next_page or url_for('index'))
         else:
             flash('Login ou senha incorretos.', 'danger')
     return render_template('login.html')
 
 @app.route('/logout')
-@login_required # Só pode acessar se estiver logado
+@login_required
 def logout():
     logout_user()
     flash('Você foi desconectado.', 'info')
@@ -143,8 +134,7 @@ def logout():
 @login_required
 def index():
     if request.method == 'POST':
-        # ... (Sua lógica existente para processar arquivos) ...
-        client_sid = request.form.get('socket_id') # Adicionar um campo oculto no form para o SID
+        client_sid = request.form.get('socket_id')
 
         if 'files' not in request.files:
             flash('Nenhum arquivo enviado.', 'warning')
@@ -155,10 +145,8 @@ def index():
             flash('Nenhum arquivo selecionado.', 'warning')
             return redirect(request.url)
 
-        # Garante que a pasta de upload esteja limpa antes de salvar novos arquivos
-        if os.path.exists(app.config['UPLOAD_FOLDER']):
-            shutil.rmtree(app.config['UPLOAD_FOLDER'])
-        os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+        for f in os.listdir(app.config['UPLOAD_FOLDER']):
+            os.remove(os.path.join(app.config['UPLOAD_FOLDER'], f))
 
         files_saved = False
         for file in files:
@@ -174,7 +162,7 @@ def index():
                 socketio.start_background_task(process_files_async, app.config['UPLOAD_FOLDER'], client_sid)
                 flash('Processamento dos arquivos iniciado em segundo plano.', 'info')
             else:
-                flash('Erro: Não foi possível obter o ID de sessão para notificação. O processamento pode ter começado, mas você não será notificado.', 'warning')
+                flash('Erro: Não foi possível obter o ID de sessão.', 'warning')
         else:
             flash('Nenhum arquivo válido foi selecionado para processamento.', 'warning')
 
@@ -182,19 +170,18 @@ def index():
 
     return render_template('index.html')
 
-
 @app.route('/relatorio', methods=['GET'])
-@login_required # Protege a rota
+@login_required
 def relatorio():
     return redirect("http://localhost:8501")
 
 @app.route('/historico', methods=['POST'])
-@login_required # Protege a rota
+@login_required
 def historico():
     aluno_nome = request.form.get('aluno')
 
     if not aluno_nome:
-        flash('Por favor, digite o nome do aluno para baixar o histórico.', 'warning')
+        flash('Por favor, digite o nome do aluno.', 'warning')
         return redirect(url_for('index'))
 
     output, error = school_history(studant=aluno_nome)
@@ -206,12 +193,11 @@ def historico():
     try:
         return send_file(output, as_attachment=True, download_name=f"historico_{aluno_nome}.xlsx", mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     except Exception as e:
-        flash(f'Erro ao enviar o arquivo de histórico: {str(e)}', 'danger')
+        flash(f'Erro ao enviar o histórico: {str(e)}', 'danger')
         return redirect(url_for('index'))
 
-
 @app.route('/baixar_dados', methods=['GET'])
-@login_required # Protege a rota
+@login_required
 def baixar_dados():
     output, error = download_school_data()
 
@@ -225,7 +211,6 @@ def baixar_dados():
         flash(f'Erro ao enviar o arquivo de dados: {str(e)}', 'danger')
         return redirect(url_for('index'))
 
-# --- SocketIO Handlers (permanecem os mesmos) ---
 @socketio.on('connect')
 def test_connect():
     emit('my_response', {'data': 'Conectado', 'sid': request.sid})
@@ -235,18 +220,14 @@ def test_connect():
 def test_disconnect():
     logger.info(f'Cliente desconectado')
 
-
-# --- Inicialização da Aplicação ---
 if __name__ == '__main__':
     with app.app_context():
-        db.create_all() # Cria as tabelas do banco de dados (se não existirem)
-        # Opcional: Criar um usuário admin inicial se o banco estiver vazio
+        db.create_all()
         if User.query.filter_by(username='admin').first() is None:
             admin_user = User(username='admin', is_admin=True)
-            admin_user.set_password('admin123') # Troque por uma senha forte!
+            admin_user.set_password('admin123')
             db.session.add(admin_user)
             db.session.commit()
-            logger.info(f"Usuário 'admin' criado com senha 'admin123'. Por favor, altere em produção!")
-
+            logger.info("Usuário 'admin' criado com senha 'admin123'. Altere em produção!")
 
     socketio.run(app, debug=True, allow_unsafe_werkzeug=True)

@@ -13,8 +13,9 @@ class StudentsGuardian:
         df = self.dataframe
         for student in df.index:
             # if "RESPONSÁVEL" in df.columns:
+            student_str = str(student) if student is not None else ""
             students_guardian.append({
-                "aluno_id": generate_uuid(student),
+                "aluno_id": generate_uuid(student_str),
                 "nome": "NOT IMPLEMENTED",
                 "telefone": "NOT IMPLEMENTED",
                 "endereco_id": "NOT IMPLEMENTED",

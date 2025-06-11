@@ -8,16 +8,13 @@ class Students:
         self.student_year = student_year
 
     def create_schema(self):
-        """ Get students data from the DataFrame.
-        :param df: DataFrame with student data
-        :param class_columns: List of columns with shift information
-        :return: List of dictionaries with student data
-        """
+        """ Get students data from the DataFrame. """
         df = self.dataframe
         students = list()
         shifts_dict = dict()
         student_class = self.class_columns[0]
-        for student in df.index:
+
+        for student in map(str, df.index):  # Converte o índice para string
             if student_class in df.columns:
                 value = df.loc[student, student_class]
                 if isinstance(value, (list, tuple)) and len(value) == 2:
@@ -45,9 +42,8 @@ class Students:
                 shift = shift.replace("Turno:", "").strip() if shift else None
                 shifts_dict.update({student: shift})
 
-
                 students.append({
-                    "aluno_id": generate_uuid(str(student)),  # Gerar um ID único
+                    "aluno_id": generate_uuid(student),  # Gera um ID único
                     "aluno": student.replace("Aluno(a):", "").strip(),
                     "total_faltas": tot_absences,
                     "matricula": "NOT IMPLEMENTED",
