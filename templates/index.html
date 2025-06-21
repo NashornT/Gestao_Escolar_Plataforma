@@ -88,6 +88,8 @@
             </div>
             <div class="card-body">
                 <form id="process-form" action="/" method="post" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token') }}">
+
                     <div class="mb-3">
                         <label for="files" class="form-label">Selecione os arquivos (.xls|.xlsx):</label>
                         <input type="file" name="files" id="files" class="form-control" multiple>
@@ -116,6 +118,7 @@
             </div>
             <div class="card-body">
                 <form action="/historico" method="post">
+                    <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token') }}">
                     <div class="mb-3">
                         <label for="aluno" class="form-label">Nome do Aluno:</label>
                         <input type="text" name="aluno" id="aluno" class="form-control" placeholder="Digite o nome completo do aluno" required>
@@ -142,68 +145,115 @@
         let currentSocketId = null;
 
         socket.on('connect', function() {
-            console.log('Conectado ao Socket.IO!');
+          console.log('Conectado ao Socket.IO!');
         });
 
         socket.on('my_response', function(msg) {
-            console.log('Mensagem do servidor:', msg);
-            if (msg.sid) {
-                currentSocketId = msg.sid;
-                document.getElementById('socket_id_input').value = currentSocketId;
-            }
+          console.log('Mensagem do servidor:', msg);
+          if (msg.sid) {
+            currentSocketId = msg.sid;
+            document.getElementById('socket_id_input').value = currentSocketId;
+          }
         });
 
         function addFlashMessage(message, category) {
-            const container = document.getElementById('flash-messages-container');
-            const alertDiv = document.createElement('div');
-            alertDiv.className = `alert alert-${category} alert-dismissible fade show`;
-            alertDiv.setAttribute('role', 'alert');
-            alertDiv.innerHTML = `<p>${message}</p><button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>`;
-            container.appendChild(alertDiv);
-            setTimeout(() => {
-                const bsAlert = new bootstrap.Alert(alertDiv);
-                bsAlert.close();
-            }, 5000);
+          const container = document.getElementById('flash-messages-container');
+          const alertDiv = document.createElement('div');
+          alertDiv.className = `alert alert-${category} alert-dismissible fade show`;
+          alertDiv.setAttribute('role', 'alert');
+          alertDiv.innerHTML = `<p>${message}</p><button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>`;
+          container.appendChild(alertDiv);
+          setTimeout(() => {
+            const bsAlert = new bootstrap.Alert(alertDiv);
+            bsAlert.close();
+          }, 5000);
         }
 
-        socket.on('processing_complete', function(data) {
-            console.log('Processamento concluído:', data);
-            hideSpinner();
-            if (data.status === 'success') {
-                addFlashMessage(data.message, 'success');
-            } else if (data.status === 'error') {
-                addFlashMessage(data.message, 'danger');
-            }
-        });
+        function getCookie(name) {
+          const cookies = document.cookie.split(';');
+          for (const cookie of cookies) {
+            const [key, value] = cookie.trim().split('=');
+            if (key === name) return value;
+          }
+          return null;
+        }
 
         document.getElementById('process-form').addEventListener('submit', function(event) {
-            const filesInput = document.getElementById('files');
-            if (filesInput.files.length === 0) {
-                addFlashMessage('Nenhum arquivo selecionado para processar.', 'warning');
-                event.preventDefault();
-                return;
-            }
+          event.preventDefault();
 
-            showSpinner();
-            document.getElementById('socket_id_input').value = currentSocketId;
+          const filesInput = document.getElementById('files');
+          if (filesInput.files.length === 0) {
+            addFlashMessage('Nenhum arquivo selecionado.', 'warning');
+            return;
+          }
+
+          const formData = new FormData(this);
+          formData.set('socket_id', currentSocketId);
+
+          const csrfToken = getCookie('csrf_access_token');
+          if (!csrfToken) {
+            addFlashMessage('Token CSRF ausente.', 'danger');
+            return;
+          }
+
+          showSpinner();
+
+          fetch('/', {
+            method: 'POST',
+            body: formData,
+            headers: {
+              'X-CSRF-TOKEN': csrfToken
+            },
+            credentials: 'same-origin'
+          }).then(response => {
+            window.location.href = response.url;
+          }).catch(err => {
+            hideSpinner();
+            addFlashMessage('Erro: ' + err.message, 'danger');
+          });
+        });
+
+        document.querySelector("form[action='/historico']").addEventListener('submit', function(event) {
+          event.preventDefault();
+          const formData = new FormData(this);
+          const csrfToken = getCookie('csrf_access_token');
+
+          fetch('/historico', {
+            method: 'POST',
+            body: formData,
+            headers: {
+              'X-CSRF-TOKEN': csrfToken
+            },
+            credentials: 'same-origin'
+          }).then(response => {
+            if (response.redirected) {
+              window.location.href = response.url;
+            } else {
+              return response.blob().then(blob => {
+                const link = document.createElement('a');
+                link.href = window.URL.createObjectURL(blob);
+                link.download = "historico.xlsx";
+                link.click();
+              });
+            }
+          }).catch(err => addFlashMessage("Erro ao baixar histórico: " + err.message, 'danger'));
         });
 
         function showSpinner() {
-            document.getElementById('button-text').style.display = 'none';
-            document.getElementById('spinner').style.display = 'inline-block';
-            document.getElementById('process-button').disabled = true;
+          document.getElementById('button-text').style.display = 'none';
+          document.getElementById('spinner').style.display = 'inline-block';
+          document.getElementById('process-button').disabled = true;
         }
 
         function hideSpinner() {
-            document.getElementById('button-text').style.display = 'inline';
-            document.getElementById('spinner').style.display = 'none';
-            document.getElementById('process-button').disabled = false;
+          document.getElementById('button-text').style.display = 'inline';
+          document.getElementById('spinner').style.display = 'none';
+          document.getElementById('process-button').disabled = false;
         }
 
         document.addEventListener('DOMContentLoaded', function() {
-            hideSpinner();
+          hideSpinner();
         });
-
-    </script>
+  </script>
 </body>
 </html>

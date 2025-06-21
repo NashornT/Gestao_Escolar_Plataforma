@@ -8,9 +8,17 @@ class Config:
     UPLOAD_FOLDER = 'Files'
     ALLOWED_EXTENSIONS = {'xls', 'xlsx'}
 
-    # Configurações JWT
-    JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'super-secret-jwt-key-prod') # MUDAR
-    JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=1)
-    JWT_TOKEN_LOCATION = ["cookies"]
-    JWT_COOKIE_SECURE = False # True para HTTPS
+    JWT_SECRET_KEY = 'sua_chave_segura'
+    JWT_TOKEN_LOCATION = ['cookies']
     JWT_COOKIE_CSRF_PROTECT = True
+    JWT_ACCESS_COOKIE_NAME = 'access_token_cookie'
+    JWT_COOKIE_SECURE = False  # True se for HTTPS
+    JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=1)
+    JWT_CSRF_IN_COOKIES = True
+    JWT_CSRF_IN_HEADERS = True
+
+    # Configurações JWT
+    #JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'super-secret-jwt-key-prod') # MUDAR
+    #JWT_TOKEN_LOCATION = ["cookies"]
+    #JWT_COOKIE_SECURE = False # True para HTTPS
+    #JWT_COOKIE_CSRF_PROTECT = True # True para proteger contra CSRF

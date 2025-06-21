@@ -1,7 +1,8 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from app import db, login_manager, jwt # Importa os objetos inicializados
 from app.models import User
-from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity, unset_jwt_cookies, set_access_cookies
+from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity, unset_jwt_cookies, \
+    set_access_cookies, get_csrf_token
 from flask_login import current_user, logout_user # Importar current_user e logout_user
 from datetime import timedelta
 
@@ -46,10 +47,6 @@ def register():
 
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
-    if current_user.is_authenticated:
-        flash('Você já está logado.', 'info')
-        return redirect(url_for('main_bp.index'))
-
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
@@ -57,13 +54,17 @@ def login():
         user = User.query.filter_by(username=username).first()
         if user and user.check_password(password):
             access_token = create_access_token(identity=user.username)
+
             response = redirect(url_for('main_bp.index'))
             set_access_cookies(response, access_token)
-            flash(f'Bem-vindo, {user.username}!', 'success')
+
+            flash(f"Bem-vindo, {user.username}!", "success")
             return response
         else:
-            flash('Login ou senha incorretos.', 'danger')
-    return render_template('login.html')
+            flash("Usuário ou senha inválidos", "danger")
+
+    return render_template("login.html")
+
 
 @auth_bp.route('/logout')
 def logout():

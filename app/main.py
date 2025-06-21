@@ -20,7 +20,7 @@ def allowed_file(filename):
 
 def process_files_async(folder_path, sid):
     try:
-        time.sleep(0.5)
+        time.sleep(1.5)
         logger.info(f"Arquivos detectados para processamento: {os.listdir(folder_path)}")
         ExtractData(folder_path=folder_path).run()
         socketio.emit('processing_complete', {'status': 'success', 'message': 'Arquivos processados com sucesso!'}, room=sid)

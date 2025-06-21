@@ -39,7 +39,8 @@ def create_app():
     # Rotas de erro JWT (ainda em app/__init__.py ou em um blueprint específico de erros)
     @jwt.unauthorized_loader
     def unauthorized_response(callback):
-        #flash('Você precisa estar logado para acessar esta página.', 'danger')
+        logger.warning(f"JWT_ERROR: {callback}")
+        flash('Você precisa estar logado para acessar esta página.', 'danger')
         return redirect(url_for('auth_bp.login')) # Note a mudança para 'auth_bp.login'
 
     @jwt.invalid_token_loader
