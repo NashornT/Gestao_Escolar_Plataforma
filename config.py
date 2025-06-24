@@ -19,6 +19,9 @@ class Config:
     JWT_CSRF_IN_COOKIES = True
     JWT_CSRF_IN_HEADERS = True
 
+    if not os.path.exists(UPLOAD_FOLDER):
+        os.makedirs(UPLOAD_FOLDER)
+
     # Configurações JWT
     #JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'super-secret-jwt-key-prod') # MUDAR
     #JWT_TOKEN_LOCATION = ["cookies"]

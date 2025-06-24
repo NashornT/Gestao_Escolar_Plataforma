@@ -1,3 +1,5 @@
+from os import mkdir
+
 from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from flask_login import current_user # Ainda pode ser útil para renderização de templates se você quiser exibir o nome de usuário do Flask-Login
@@ -20,7 +22,7 @@ def allowed_file(filename):
 
 def process_files_async(folder_path, sid):
     try:
-        time.sleep(1.5)
+        time.sleep(1.0)
         logger.info(f"Arquivos detectados para processamento: {os.listdir(folder_path)}")
         ExtractData(folder_path=folder_path).run()
         socketio.emit('processing_complete', {'status': 'success', 'message': 'Arquivos processados com sucesso!'}, room=sid)
@@ -34,7 +36,7 @@ def process_files_async(folder_path, sid):
 
 @main_bp.route('/', methods=['GET', 'POST'])
 @jwt_required()
-def index():
+def get_files():
     # Para obter o usuário do JWT:
     current_username_jwt = get_jwt_identity()
     user_from_jwt = User.query.filter_by(username=current_username_jwt).first()
@@ -50,9 +52,6 @@ def index():
         if not files or all(file.filename == '' for file in files):
             flash('Nenhum arquivo selecionado.', 'warning')
             return redirect(request.url)
-
-        for f in os.listdir(current_app.config['UPLOAD_FOLDER']):
-            os.remove(os.path.join(current_app.config['UPLOAD_FOLDER'], f))
 
         files_saved = False
         for file in files:

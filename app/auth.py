@@ -15,7 +15,7 @@ def register():
         return redirect(url_for('main_bp.index')) # Note a mudança para 'main_bp.index'
 
     if request.method == 'POST':
-        username = request.form.get('username').strip()
+        username = request.form.get('username').strip().lower()
         password = request.form.get('password')
         confirm_password = request.form.get('confirm_password')
 
@@ -48,14 +48,14 @@ def register():
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form.get('username')
+        username = request.form.get('username').strip().lower()
         password = request.form.get('password')
 
         user = User.query.filter_by(username=username).first()
         if user and user.check_password(password):
             access_token = create_access_token(identity=user.username)
 
-            response = redirect(url_for('main_bp.index'))
+            response = redirect(url_for('main_bp.get_files'))
             set_access_cookies(response, access_token)
 
             flash(f"Bem-vindo, {user.username}!", "success")
