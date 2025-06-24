@@ -143,6 +143,8 @@
     <script>
         var socket = io();
         let currentSocketId = null;
+        let socketReady = false;
+
 
         socket.on('connect', function() {
           console.log('Conectado ao Socket.IO!');
@@ -153,6 +155,7 @@
           if (msg.sid) {
             currentSocketId = msg.sid;
             document.getElementById('socket_id_input').value = currentSocketId;
+            socketReady = true;
           }
         });
 
@@ -180,6 +183,12 @@
 
         document.getElementById('process-form').addEventListener('submit', function(event) {
           event.preventDefault();
+
+
+          if (!socketReady) {
+                addFlashMessage('Aguarde o carregamento do socket antes de enviar.', 'warning');
+                return;
+            }
 
           const filesInput = document.getElementById('files');
           if (filesInput.files.length === 0) {

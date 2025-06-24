@@ -1,9 +1,11 @@
 import os
 from datetime import timedelta
+from storage.db_keys import user,password,host,port,database_audit
 
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY', 'dev_key_super_secret_please_change_in_production')
-    SQLALCHEMY_DATABASE_URI = 'sqlite:///site.db'
+    # SQLALCHEMY_DATABASE_URI = 'sqlite:///site.db' # SQLite,
+    SQLALCHEMY_DATABASE_URI = f'mysql+pymysql://{user}:{password}@{host}:{port}/{database_audit}?charset=utf8mb4'
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     UPLOAD_FOLDER = 'Files'
     ALLOWED_EXTENSIONS = {'xls', 'xlsx'}
