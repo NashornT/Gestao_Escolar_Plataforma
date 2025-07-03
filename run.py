@@ -14,4 +14,4 @@ if __name__ == '__main__':
             db.session.commit()
             logger.info("Usuário 'admin' criado com senha 'admin123'. Altere em produção!")
 
-    socketio.run(app, debug=True, allow_unsafe_werkzeug=True)
+    socketio.run(app, debug=False, allow_unsafe_werkzeug=True)
