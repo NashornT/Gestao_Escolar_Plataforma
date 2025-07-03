@@ -26,26 +26,12 @@ class Students:
                 if student_class == "6° Ano de Escolaridade - 601" or student_class == "6° Ano de Escolaridade - 602":
                     shift = "Manhã"
 
-                if isinstance(df['FALTAS'][student], list):
-                    if "=SUM" in str(df['FALTAS'][student][-1]):
-                        df['FALTAS'][student].pop()
-                        absences_list = df['FALTAS'][student]
-                        if absences_list:
-                            tot_absences = sum(absences_list)
-                        else:
-                            tot_absences = 0.0
-                    else:
-                        tot_absences = df['FALTAS'][student][-1] if isinstance(df['FALTAS'][student], list) else 0.0
-                else:
-                    tot_absences = 0.0
-
                 shift = shift.replace("Turno:", "").strip() if shift else None
                 shifts_dict.update({student: shift})
 
                 students.append({
                     "aluno_id": generate_uuid(student),  # Gera um ID único
                     "aluno": student.replace("Aluno(a):", "").strip(),
-                    "total_faltas": tot_absences,
                     "matricula": "NOT IMPLEMENTED",
                     "resonsavel_id": "NOT IMPLEMENTED",
                     "data_nascimento": "NOT IMPLEMENTED",

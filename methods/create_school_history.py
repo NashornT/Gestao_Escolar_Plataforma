@@ -11,7 +11,7 @@ def school_history(studant):
 
     # Consulta os dados do aluno no banco
     query = f"""
-        SELECT a.aluno, a.total_faltas, t.ano_escolar, t.turma, t.turno,
+        SELECT a.aluno, n.total_faltas, t.ano_escolar, t.turma, t.turno,
                m.disciplina,
                n.nota_1_bimestre, n.nota_1_bimestre_recuperacao, n.nota_1_bimestre_final,
                n.nota_2_bimestre, n.nota_2_bimestre_recuperacao, n.nota_2_bimestre_final,

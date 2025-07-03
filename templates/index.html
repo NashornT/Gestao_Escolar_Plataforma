@@ -226,6 +226,8 @@
           event.preventDefault();
           const formData = new FormData(this);
           const csrfToken = getCookie('csrf_access_token');
+          const alunoNome = document.getElementById('aluno').value.trim();
+          const timestamp = new Date().toISOString().replace(/[:\-T]/g, '').split('.')[0];
 
           fetch('/historico', {
             method: 'POST',
@@ -241,7 +243,7 @@
               return response.blob().then(blob => {
                 const link = document.createElement('a');
                 link.href = window.URL.createObjectURL(blob);
-                link.download = "historico.xlsx";
+                link.download = `historico_${alunoNome}_${timestamp}.xlsx`;
                 link.click();
               });
             }

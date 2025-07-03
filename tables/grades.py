@@ -10,17 +10,17 @@ class Grades:
         self.file_type = file_type
 
 
-    def __normalize_grades(self, grades_list):
+    def __normalize_numbers(self, numbers_list):
         """Normaliza as notas, removendo valores inválidos e garantindo consistência."""
-        normalized_grades = []
-        for grade in grades_list:
+        normalized_numbers = []
+        for number in numbers_list:
             try:
                 # Converte para float e ignora valores não numéricos
-                normalized_grades.append(float(grade))
+                normalized_numbers.append(float(number))
             except ValueError:
                 pass
                 #normalized_grades.append(0.0)  # Substitui valores inválidos por 0.0
-        return normalized_grades
+        return normalized_numbers
 
     def create_schema(self):
         """"Get grades data from the DataFrame.
@@ -31,13 +31,21 @@ class Grades:
         grades = list()
         df = self.dataframe
         for student in df.index:
+            tot_absences = 0.0
+            if isinstance(df['FALTAS'][student], list):
+                absences = self.__normalize_numbers(df['FALTAS'][student])
+                if self.file_type == "xlsx":
+                    tot_absences = sum(absences) if isinstance(absences, list) else absences
+                else:
+                    tot_absences = absences[-1] if isinstance(absences, list) else absences
+
             for discipline in self.disciplines_columns:
                 if discipline in df.columns:
                     len_grades = len(df.loc[student, discipline])
                     grades_list = df.loc[student, discipline]
 
                     # Normaliza as notas
-                    grades_list = self.__normalize_grades(grades_list)
+                    grades_list = self.__normalize_numbers(grades_list)
 
                     skip_grade = False
                     grades_dict = {"notas":[], "notas_rec": [], "notas_final": []}
@@ -99,6 +107,7 @@ class Grades:
                             "nota_4_bimestre_final": grades_dict.get("notas_final")[3] if len(grades_dict.get("notas_final")) > 3 else 0.0,
                             "nota_total": sum_grades,
                             "media_final": average_grades,
+                            "total_faltas": tot_absences,
                         })
 
         return grades
