@@ -1,3 +1,4 @@
+# app/main.py
 from os import mkdir
 from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
@@ -44,16 +45,21 @@ def processar_arquivos():
         flash('Acesso negado. Apenas administradores podem processar arquivos.', 'danger')
         return redirect(url_for('auth_bp.login'))
 
-    # Alteração: Pega a lista de arquivos do 'request.files.getlist'
-    files = request.files.getlist('file')  # Agora 'file' pode conter múltiplos arquivos
+    files = request.files.getlist('file')
+    # MODIFICAÇÃO AQUI: Obtém o sid do campo de formulário
+    client_sid = request.form.get('socket_id')
 
     if not files or all(file.filename == '' for file in files):
         flash('Nenhum arquivo enviado ou selecionado.', 'danger')
         return redirect(url_for('main_bp.get_files'))
 
+    if not client_sid:
+        logger.error("Client Socket ID (sid) não recebido na requisição de processamento de arquivos.")
+        flash('Erro interno: ID de sessão do cliente não encontrado. Tente recarregar a página.', 'danger')
+        return redirect(url_for('main_bp.get_files'))
+
     upload_folder = current_app.config['UPLOAD_FOLDER']
 
-    # Limpar pasta de uploads antes de salvar novos arquivos
     if os.path.exists(upload_folder):
         try:
             shutil.rmtree(upload_folder)
@@ -78,10 +84,7 @@ def processar_arquivos():
 
     flash(f'{uploaded_count} arquivo(s) carregado(s) com sucesso! Processando...', 'success')
 
-    sid = request.sid
-    # A função de processamento assíncrono precisa ser capaz de lidar com múltiplos arquivos na pasta.
-    # Assumimos que ExtractData().run() já lida com todos os arquivos na pasta.
-    socketio.start_background_task(target=process_files_async, folder_path=upload_folder, sid=sid)
+    socketio.start_background_task(target=process_files_async, folder_path=upload_folder, sid=client_sid)
 
     return redirect(url_for('main_bp.get_files'))
 
@@ -98,20 +101,20 @@ def historico():
     aluno_nome = request.form.get('aluno_nome')
     if not aluno_nome:
         flash('Nome do aluno não fornecido.', 'danger')
-        return redirect(url_for('main_bp.get_files'))  # Use get_files aqui
+        return redirect(url_for('main_bp.get_files'))
 
     output, error = school_history(studant=aluno_nome)
 
     if error:
         flash(f'Erro ao gerar histórico para {aluno_nome}: {error}', 'danger')
-        return redirect(url_for('main_bp.get_files'))  # Use get_files aqui
+        return redirect(url_for('main_bp.get_files'))
 
     try:
         return send_file(output, as_attachment=True, download_name=f"historico_{aluno_nome}.xlsx",
                          mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     except Exception as e:
         flash(f'Erro ao enviar o histórico: {str(e)}', 'danger')
-        return redirect(url_for('main_bp.get_files'))  # Use get_files aqui
+        return redirect(url_for('main_bp.get_files'))
 
 
 @main_bp.route('/baixar_dados', methods=['GET'])
@@ -127,7 +130,7 @@ def baixar_dados():
 
     if error:
         flash(f'Erro ao baixar dados: {error}', 'danger')
-        return redirect(url_for('main_bp.get_files'))  # Use get_files aqui
+        return redirect(url_for('main_bp.get_files'))
 
     try:
         return send_file(output, as_attachment=True,
@@ -135,13 +138,12 @@ def baixar_dados():
                          mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     except Exception as e:
         flash(f'Erro ao enviar o arquivo de dados: {str(e)}', 'danger')
-        return redirect(url_for('main_bp.get_files'))  # Use get_files aqui
+        return redirect(url_for('main_bp.get_files'))
 
 
 def process_files_async(folder_path, sid):
     try:
-        time.sleep(1.0)  # Pequeno atraso para garantir que os arquivos estejam salvos
-        # Verifica se a pasta existe e não está vazia
+        time.sleep(1.0)
         if not os.path.exists(folder_path) or not os.listdir(folder_path):
             logger.warning(
                 f"Pasta de uploads '{folder_path}' não encontrada ou vazia durante o processamento assíncrono.")
@@ -151,7 +153,7 @@ def process_files_async(folder_path, sid):
             return
 
         logger.info(f"Arquivos detectados para processamento: {os.listdir(folder_path)}")
-        ExtractData(folder_path=folder_path).run()  # Assume que ExtractData().run() lida com todos os arquivos na pasta
+        ExtractData(folder_path=folder_path).run()
         socketio.emit('processing_complete', {'status': 'success', 'message': 'Arquivos processados com sucesso!'},
                       room=sid)
     except Exception as e:

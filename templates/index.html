@@ -80,6 +80,7 @@
                                 <label for="fileInput" class="form-label">Selecionar arquivo(s) Excel (.xls, .xlsx):</label>
                                 <input class="form-control" type="file" id="fileInput" name="file" accept=".xls,.xlsx" multiple required>
                             </div>
+                            <input type="hidden" id="socketIdInput" name="socket_id">
                             <button type="submit" class="btn btn-success" id="process-button">
                                 <span id="button-text">Processar Arquivos</span>
                                 <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true" id="spinner"></span>
@@ -125,7 +126,9 @@
         const socket = io();
 
         socket.on('connect', function() {
-            console.log('Conectado ao SocketIO');
+            console.log('Conectado ao SocketIO. ID:', socket.id);
+            // MODIFICAÇÃO AQUI: Define o socket.id no campo oculto
+            document.getElementById('socketIdInput').value = socket.id;
         });
 
         socket.on('processing_complete', function(data) {
@@ -143,13 +146,11 @@
 
             const formData = new FormData(this);
 
-            // Certifique-se de que a variável 'fileInput' existe no HTML e está sendo usada para pegar os arquivos
             const fileInput = document.getElementById('fileInput');
-            // Verifique se há arquivos selecionados antes de tentar obter o CSRF token e fazer o fetch
             if (fileInput.files.length === 0) {
                 addFlashMessage('Nenhum arquivo selecionado para upload.', 'danger');
                 hideSpinner();
-                return; // Impede a continuação se nenhum arquivo foi selecionado
+                return;
             }
 
             const csrfToken = document.cookie.split('; ').find(row => row.startsWith('csrf_access_token=')).split('=')[1];
