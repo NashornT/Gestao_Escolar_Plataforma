@@ -24,209 +24,188 @@
         .bg-info { background-color: #1abc9c !important; }
         .bg-warning { background-color: #f39c12 !important; }
         .bg-success { background-color: #2ecc71 !important; }
-        .bg-danger { background-color: #e74c3c !important; }
-        .bg-secondary { background-color: #34495e !important; }
-        .text-white { color: #ecf0f1 !important; }
-        .text-dark { color: #2c3e50 !important; }
-
-        .btn-success { background-color: #2ecc71; border-color: #2ecc71; }
-        .btn-primary { background-color: #3498db; border-color: #3498db; }
-        .btn-light { background-color: #ecf0f1; border-color: #ecf0f1; color: #2c3e50; }
-        .btn-light:hover { background-color: #bdc3c7; border-color: #bdc3c7; }
-
-        .alert {
-            padding: 1rem 1.25rem;
-            margin-bottom: 1rem;
-            border: 1px solid transparent;
-            border-radius: 0.25rem;
-        }
-        .alert-success { color: #155724; background-color: #d4edda; border-color: #c3e6cb; }
-        .alert-info { color: #0c5460; background-color: #d1ecf1; border-color: #bee5eb; }
-        .alert-warning { color: #856404; background-color: #fff3cd; border-color: #ffeeba; }
-        .alert-danger { color: #721c24; background-color: #f8d7da; border-color: #f5c6cb; }
         .spinner-border {
-            width: 1.5rem; height: 1.5rem; vertical-align: text-bottom; border: .25em solid currentColor;
-            border-right-color: transparent; border-radius: 50%; -webkit-animation: .75s linear infinite spinner-border;
-            animation: .75s linear infinite spinner-border;
+            display: none; /* Oculta o spinner por padrão */
         }
-        @-webkit-keyframes spinner-border { to { -webkit-transform: rotate(360deg); transform: rotate(360deg); } }
-        @keyframes spinner-border { to { -webkit-transform: rotate(360deg); transform: rotate(360deg); } }
     </style>
 </head>
-<body class="bg-dark text-white">
-    <div class="container my-5">
-        <h1 class="text-center mb-4">Gestão Escolar</h1>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('main_bp.get_files') }}">Gestão Escolar</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                    <li class="nav-item">
+                        <a class="nav-link active" aria-current="page" href="{{ url_for('main_bp.get_files') }}">Início</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" id="baixarDadosLink">Baixar Dados</a>
+                    </li>
+                </ul>
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <span class="nav-link text-white">Bem-vindo, {{ username }} ({{ user_role }})</span>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link btn btn-danger text-white" href="{{ url_for('auth_bp.logout') }}">Sair</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
 
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            {% if current_user_jwt %} {# Use current_user_jwt passado do backend #}
-                <p class="mb-0">Bem-vindo, <strong>{{ current_user_jwt.username }}</strong>!</p>
-                <a href="{{ url_for('auth_bp.logout') }}" class="btn btn-danger btn-sm">Sair</a>
-            {% else %}
-                <p class="mb-0">Você não está logado.</p>
-                <div>
-                    <a href="{{ url_for('auth_bp.login') }}" class="btn btn-primary btn-sm me-2">Login</a>
-                    <a href="{{ url_for('auth_bp.register') }}" class="btn btn-info btn-sm">Cadastrar</a>
+    <div class="container mt-4">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }}" role="alert">
+                    {{ message }}
                 </div>
-            {% endif %}
-        </div>
+            {% endfor %}
+        {% endif %}
+        {% endwith %}
 
-        <div id="flash-messages-container" class="container my-3">
-            {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, message in messages %}
-                    <div class="alert alert-{{ category }}" role="alert">
-                        <p>{{ message }}</p>
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card bg-dark text-white mb-4">
+                    <div class="card-header bg-info">
+                        Processar Arquivos de Notas
                     </div>
-                {% endfor %}
-            {% endif %}
-            {% endwith %}
-        </div>
-
-        <div class="card mb-4 bg-secondary text-white">
-            <div class="card-header bg-primary text-white">
-                <h2>Processar Arquivos</h2>
-            </div>
-            <div class="card-body">
-                <form id="process-form" action="/" method="post" enctype="multipart/form-data">
-                    <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token') }}">
-
-                    <div class="mb-3">
-                        <label for="files" class="form-label">Selecione os arquivos (.xls|.xlsx):</label>
-                        <input type="file" name="files" id="files" class="form-control" multiple>
-                        <input type="hidden" name="socket_id" id="socket_id_input">
+                    <div class="card-body">
+                        <form id="upload-form" method="POST" enctype="multipart/form-data" action="{{ url_for('main_bp.processar_arquivos') }}">
+                            <div class="mb-3">
+                                <label for="fileInput" class="form-label">Selecionar arquivo(s) Excel (.xls, .xlsx):</label>
+                                <input class="form-control" type="file" id="fileInput" name="file" accept=".xls,.xlsx" multiple required>
+                            </div>
+                            <button type="submit" class="btn btn-success" id="process-button">
+                                <span id="button-text">Processar Arquivos</span>
+                                <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true" id="spinner"></span>
+                            </button>
+                        </form>
+                        <div id="processing-status" class="mt-3"></div>
                     </div>
-                    <button type="submit" class="btn btn-success" id="process-button">
-                        <span id="button-text">Processar</span>
-                        <span id="spinner" class="spinner-border spinner-border-sm" role="status" aria-hidden="true" style="display: none;"></span>
-                    </button>
-                </form>
+                </div>
             </div>
-        </div>
 
-        <div class="card mb-4 bg-secondary text-white">
-            <div class="card-header bg-info text-white">
-                <h2>Gerar Relatório</h2>
-            </div>
-            <div class="card-body">
-                <a href="/relatorio" class="btn btn-light">Abrir Relatório</a>
-            </div>
-        </div>
-
-        <div class="card bg-secondary text-white">
-            <div class="card-header bg-warning text-dark">
-                <h2>Baixar Histórico Escolar</h2>
-            </div>
-            <div class="card-body">
-                <form action="/historico" method="post">
-                    <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token') }}">
-                    <div class="mb-3">
-                        <label for="aluno" class="form-label">Nome do Aluno:</label>
-                        <input type="text" name="aluno" id="aluno" class="form-control" placeholder="Digite o nome completo do aluno" required>
+            <div class="col-md-6">
+                <div class="card bg-dark text-white mb-4">
+                    <div class="card-header bg-warning">
+                        Gerar Histórico Escolar
                     </div>
-                    <button type="submit" class="btn btn-primary">Baixar Histórico</button>
-                </form>
+                    <div class="card-body">
+                        <form id="history-form" method="POST" action="{{ url_for('main_bp.historico') }}">
+                            <div class="mb-3">
+                                <label for="alunoNome" class="form-label">Nome do Aluno:</label>
+                                <input type="text" class="form-control" id="alunoNome" name="aluno_nome" required>
+                            </div>
+                            <button type="submit" class="btn btn-warning">Gerar Histórico</button>
+                        </form>
+                    </div>
+                </div>
             </div>
         </div>
-
-        <div class="card bg-secondary text-white my-4">
-            <div class="card-header bg-success text-white">
-                <h2>Baixar Dados</h2>
-            </div>
-            <div class="card-body py-3">
-                <a href="/baixar_dados" class="btn btn-light">Baixar Dados</a>
-            </div>
-        </div>
-
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        var socket = io();
-        let currentSocketId = null;
-        let socketReady = false;
+        function addFlashMessage(message, category) {
+            const container = document.querySelector('.container.mt-4');
+            const alertHtml = `
+                <div class="alert alert-${category} alert-dismissible fade show" role="alert">
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            `;
+            container.insertAdjacentHTML('afterbegin', alertHtml);
+        }
 
+        const socket = io();
 
         socket.on('connect', function() {
-          console.log('Conectado ao Socket.IO!');
+            console.log('Conectado ao SocketIO');
         });
 
-        socket.on('my_response', function(msg) {
-          console.log('Mensagem do servidor:', msg);
-          if (msg.sid) {
-            currentSocketId = msg.sid;
-            document.getElementById('socket_id_input').value = currentSocketId;
-            socketReady = true;
-          }
+        socket.on('processing_complete', function(data) {
+            hideSpinner();
+            if (data.status === 'success') {
+                addFlashMessage(data.message, 'success');
+            } else {
+                addFlashMessage(data.message, 'danger');
+            }
         });
 
-        function addFlashMessage(message, category) {
-          const container = document.getElementById('flash-messages-container');
-          const alertDiv = document.createElement('div');
-          alertDiv.className = `alert alert-${category} alert-dismissible fade show`;
-          alertDiv.setAttribute('role', 'alert');
-          alertDiv.innerHTML = `<p>${message}</p><button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>`;
-          container.appendChild(alertDiv);
-          setTimeout(() => {
-            const bsAlert = new bootstrap.Alert(alertDiv);
-            bsAlert.close();
-          }, 5000);
-        }
+        document.getElementById('upload-form').addEventListener('submit', function(event) {
+            event.preventDefault();
+            showSpinner();
 
-        function getCookie(name) {
-          const cookies = document.cookie.split(';');
-          for (const cookie of cookies) {
-            const [key, value] = cookie.trim().split('=');
-            if (key === name) return value;
-          }
-          return null;
-        }
+            const formData = new FormData(this);
 
-        document.getElementById('process-form').addEventListener('submit', function(event) {
-          event.preventDefault();
-
-
-          if (!socketReady) {
-                addFlashMessage('Aguarde o carregamento do socket antes de enviar.', 'warning');
-                return;
+            // Certifique-se de que a variável 'fileInput' existe no HTML e está sendo usada para pegar os arquivos
+            const fileInput = document.getElementById('fileInput');
+            // Verifique se há arquivos selecionados antes de tentar obter o CSRF token e fazer o fetch
+            if (fileInput.files.length === 0) {
+                addFlashMessage('Nenhum arquivo selecionado para upload.', 'danger');
+                hideSpinner();
+                return; // Impede a continuação se nenhum arquivo foi selecionado
             }
 
-          const filesInput = document.getElementById('files');
-          if (filesInput.files.length === 0) {
-            addFlashMessage('Nenhum arquivo selecionado.', 'warning');
-            return;
-          }
+            const csrfToken = document.cookie.split('; ').find(row => row.startsWith('csrf_access_token=')).split('=')[1];
 
-          const formData = new FormData(this);
-          formData.set('socket_id', currentSocketId);
-
-          const csrfToken = getCookie('csrf_access_token');
-          if (!csrfToken) {
-            addFlashMessage('Token CSRF ausente.', 'danger');
-            return;
-          }
-
-          showSpinner();
-
-          fetch('/', {
-            method: 'POST',
-            body: formData,
-            headers: {
-              'X-CSRF-TOKEN': csrfToken
-            },
-            credentials: 'same-origin'
-          }).then(response => {
-            window.location.href = response.url;
-          }).catch(err => {
-            hideSpinner();
-            addFlashMessage('Erro: ' + err.message, 'danger');
-          });
+            fetch(this.action, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-CSRF-TOKEN': csrfToken
+                },
+                credentials: 'same-origin'
+            }).then(response => {
+                if (response.redirected) {
+                    window.location.href = response.url;
+                } else {
+                    return response.json();
+                }
+            }).then(data => {
+                // Se o Flask retornar JSON com mensagens, trate aqui
+            }).catch(error => {
+                hideSpinner();
+                addFlashMessage('Erro ao carregar arquivo: ' + error.message, 'danger');
+            });
         });
 
-        document.querySelector("form[action='/historico']").addEventListener('submit', function(event) {
+        document.getElementById('baixarDadosLink').addEventListener('click', function(event) {
+            event.preventDefault();
+            const csrfToken = document.cookie.split('; ').find(row => row.startsWith('csrf_access_token=')).split('=')[1];
+
+            fetch('{{ url_for('main_bp.baixar_dados') }}', {
+                method: 'GET',
+                headers: {
+                    'X-CSRF-TOKEN': csrfToken
+                },
+                credentials: 'same-origin'
+            }).then(response => {
+                if (response.redirected) {
+                    window.location.href = response.url;
+                } else {
+                    return response.blob().then(blob => {
+                        const link = document.createElement('a');
+                        link.href = window.URL.createObjectURL(blob);
+                        link.download = `dados_alunos_${new Date().toISOString().replace(/[:\-T]/g, '').split('.')[0]}.xlsx`;
+                        link.click();
+                    });
+                }
+            }).catch(err => addFlashMessage("Erro ao baixar dados: " + err.message, 'danger'));
+        });
+
+        document.getElementById('history-form').addEventListener('submit', function(event) {
           event.preventDefault();
+          const alunoNome = document.getElementById('alunoNome').value;
           const formData = new FormData(this);
-          const csrfToken = getCookie('csrf_access_token');
-          const alunoNome = document.getElementById('aluno').value.trim();
+
+          const csrfToken = document.cookie.split('; ').find(row => row.startsWith('csrf_access_token=')).split('=')[1];
+
           const timestamp = new Date().toISOString().replace(/[:\-T]/g, '').split('.')[0];
 
           fetch('/historico', {
