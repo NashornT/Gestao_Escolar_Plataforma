@@ -24,4 +24,4 @@ if __name__ == '__main__':
                 logger.info("Informações do usuário 'admin' atualizadas (is_admin=True, role='admin').")
 
 
-    socketio.run(app, debug=False, allow_unsafe_werkzeug=True)
+    socketio.run(app, debug=True, allow_unsafe_werkzeug=True)

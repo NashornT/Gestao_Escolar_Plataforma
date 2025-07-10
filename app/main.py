@@ -1,9 +1,5 @@
-# app/main.py
-from os import mkdir
 from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file, current_app
-from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
-from flask_login import current_user
-from flask_socketio import emit
+from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db, socketio, logger
 from app.models import User
 from methods.extract_data import ExtractData
@@ -14,7 +10,7 @@ import shutil
 import time
 from datetime import datetime
 
-main_bp = Blueprint('main_bp', __name__, template_folder='../templates')
+main_bp = Blueprint('main_bp', __name__, template_folder='../templates/main')
 
 
 def allowed_file(filename):
@@ -32,7 +28,8 @@ def get_files():
         flash('Acesso negado. Apenas administradores podem acessar esta área.', 'danger')
         return redirect(url_for('auth_bp.login'))
 
-    return render_template('index.html', username=username_jwt, is_admin=user.is_admin, user_role=user.role)
+    return render_template('index.html', username=username_jwt, is_admin=user.is_admin,
+                           user_role="Administrador" if user.is_admin else "Professor" if user.is_professor else "Usuário Comum")
 
 
 @main_bp.route('/processar_arquivos', methods=['POST'])
@@ -46,12 +43,7 @@ def processar_arquivos():
         return redirect(url_for('auth_bp.login'))
 
     files = request.files.getlist('file')
-    # MODIFICAÇÃO AQUI: Obtém o sid do campo de formulário
     client_sid = request.form.get('socket_id')
-
-    if not files or all(file.filename == '' for file in files):
-        flash('Nenhum arquivo enviado ou selecionado.', 'danger')
-        return redirect(url_for('main_bp.get_files'))
 
     if not client_sid:
         logger.error("Client Socket ID (sid) não recebido na requisição de processamento de arquivos.")
@@ -89,34 +81,6 @@ def processar_arquivos():
     return redirect(url_for('main_bp.get_files'))
 
 
-@main_bp.route('/historico', methods=['POST'])
-@jwt_required()
-def historico():
-    username_jwt = get_jwt_identity()
-    user = User.query.filter_by(username=username_jwt).first()
-    if not user or not user.is_admin:
-        flash('Acesso negado. Apenas administradores podem gerar históricos.', 'danger')
-        return redirect(url_for('auth_bp.login'))
-
-    aluno_nome = request.form.get('aluno_nome')
-    if not aluno_nome:
-        flash('Nome do aluno não fornecido.', 'danger')
-        return redirect(url_for('main_bp.get_files'))
-
-    output, error = school_history(studant=aluno_nome)
-
-    if error:
-        flash(f'Erro ao gerar histórico para {aluno_nome}: {error}', 'danger')
-        return redirect(url_for('main_bp.get_files'))
-
-    try:
-        return send_file(output, as_attachment=True, download_name=f"historico_{aluno_nome}.xlsx",
-                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    except Exception as e:
-        flash(f'Erro ao enviar o histórico: {str(e)}', 'danger')
-        return redirect(url_for('main_bp.get_files'))
-
-
 @main_bp.route('/baixar_dados', methods=['GET'])
 @jwt_required()
 def baixar_dados():
@@ -140,6 +104,106 @@ def baixar_dados():
         flash(f'Erro ao enviar o arquivo de dados: {str(e)}', 'danger')
         return redirect(url_for('main_bp.get_files'))
 
+
+@main_bp.route('/historico', methods=['POST'])
+@jwt_required()
+def historico():
+    username_jwt = get_jwt_identity()
+    user = User.query.filter_by(username=username_jwt).first()
+    if not user or (not user.is_admin and not user.is_professor):
+        flash('Acesso negado. Você não tem permissão para esta ação.', 'danger')
+        return redirect(url_for('main_bp.get_files'))
+
+    aluno_nome = request.form.get('aluno')
+
+    if not aluno_nome:
+        flash('Por favor, digite o nome do aluno.', 'warning')
+        return redirect(url_for('main_bp.get_files'))
+
+    output, error = school_history(studant=aluno_nome)
+
+    if error:
+        flash(f'Erro ao gerar histórico para {aluno_nome}: {error}', 'danger')
+        return redirect(url_for('main_bp.get_files'))
+
+    try:
+        return send_file(output, as_attachment=True, download_name=f"historico_{aluno_nome}.xlsx",
+                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    except Exception as e:
+        flash(f'Erro ao enviar o histórico: {str(e)}', 'danger')
+        return redirect(url_for('main_bp.get_files'))
+
+
+@main_bp.route('/listar_usuarios')
+@jwt_required()
+def listar_usuarios():
+    username_jwt = get_jwt_identity()
+    user = User.query.filter_by(username=username_jwt).first()
+
+    if not user or not user.is_admin:
+        flash('Acesso negado. Apenas administradores podem listar usuários.', 'danger')
+        return redirect(url_for('auth_bp.login'))
+
+    users = User.query.all()
+    return render_template('listar_usuarios.html', users=users, username=username_jwt, is_admin=user.is_admin,
+                           user_role="Administrador")
+
+
+@main_bp.route('/criar_usuario', methods=['GET', 'POST'])
+@jwt_required()
+def criar_usuario():
+    username_jwt = get_jwt_identity()
+    current_admin_user = User.query.filter_by(username=username_jwt).first()
+
+    if not current_admin_user or not current_admin_user.is_admin:
+        flash('Acesso negado. Apenas administradores podem criar usuários.', 'danger')
+        return redirect(url_for('auth_bp.login'))
+
+    # Obtenha o token CSRF diretamente do cookie
+    # O nome do cookie é definido por JWT_ACCESS_COOKIE_NAME ou JWT_COOKIE_CSRF_PROTECT
+    # Se JWT_CSRF_IN_COOKIES for True, o nome padrão é 'csrf_access_token'
+    csrf_token = request.cookies.get('csrf_access_token')
+
+    if request.method == 'POST':
+        username = request.form.get('username').strip().lower()
+        password = request.form.get('password')
+        confirm_password = request.form.get('confirm_password')
+        is_admin = 'is_admin' in request.form
+        is_professor = 'is_professor' in request.form
+
+        if not username or not password or not confirm_password:
+            flash('Todos os campos são obrigatórios.', 'danger')
+            return render_template('criar_usuario.html', username=username_jwt, is_admin=current_admin_user.is_admin,
+                                   user_role="Administrador", csrf_token=csrf_token) # Passe o token aqui
+
+        if len(password) < 8 or not any(char.isdigit() for char in password) or not any(
+                char.isupper() for char in password) or not any(char.islower() for char in password):
+            flash('A senha deve ter pelo menos 8 caracteres e incluir letras maiúsculas, minúsculas e números.',
+                  'danger')
+            return render_template('criar_usuario.html', username=username_jwt, is_admin=current_admin_user.is_admin,
+                                   user_role="Administrador", csrf_token=csrf_token) # Passe o token aqui
+
+        if password != confirm_password:
+            flash('As senhas não coincidem.', 'danger')
+            return render_template('criar_usuario.html', username=username_jwt, is_admin=current_admin_user.is_admin,
+                                   user_role="Administrador", csrf_token=csrf_token) # Passe o token aqui
+
+        existing_user = User.query.filter_by(username=username).first()
+        if existing_user:
+            flash('Nome de usuário já existe. Por favor, escolha outro.', 'danger')
+            return render_template('criar_usuario.html', username=username_jwt, is_admin=current_admin_user.is_admin,
+                                   user_role="Administrador", csrf_token=csrf_token) # Passe o token aqui
+
+        new_user = User(username=username, is_admin=is_admin, is_professor=is_professor)
+        new_user.set_password(password)
+        db.session.add(new_user)
+        db.session.commit()
+        flash(f'Usuário {username} criado com sucesso!', 'success')
+        return redirect(url_for('main_bp.listar_usuarios'))
+
+    # Para requisições GET:
+    return render_template('criar_usuario.html', username=username_jwt, is_admin=current_admin_user.is_admin,
+                           user_role="Administrador", csrf_token=csrf_token) # <--- ALTERADA ESTA LINHA
 
 def process_files_async(folder_path, sid):
     try:

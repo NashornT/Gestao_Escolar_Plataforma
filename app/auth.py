@@ -6,7 +6,7 @@ from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identi
 from flask_login import current_user, logout_user
 from datetime import timedelta  # Importe timedelta
 
-auth_bp = Blueprint('auth_bp', __name__, template_folder='../templates')
+auth_bp = Blueprint('auth_bp', __name__, template_folder='../templates/auth')
 
 
 @auth_bp.route('/register', methods=['GET', 'POST'])

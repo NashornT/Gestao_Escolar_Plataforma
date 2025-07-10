@@ -18,6 +18,7 @@ class Config:
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=1)
     JWT_CSRF_IN_COOKIES = True
     JWT_CSRF_IN_HEADERS = True
+    JWT_CSRF_IN_BODY = True
 
     if not os.path.exists(UPLOAD_FOLDER):
         os.makedirs(UPLOAD_FOLDER)
