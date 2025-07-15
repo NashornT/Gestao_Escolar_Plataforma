@@ -10,6 +10,7 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(db.String(256), nullable=False)
 
     is_admin = db.Column(db.Boolean, default=False)
+    is_professor = db.Column(db.Boolean, default=False)
     role = db.Column(db.String(20), default='student', nullable=False)  # 'student', 'professor', 'admin'
     last_login = db.Column(db.DateTime, default=datetime.datetime.now)
 
