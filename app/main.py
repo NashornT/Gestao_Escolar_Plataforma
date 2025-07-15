@@ -17,7 +17,6 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in current_app.config['ALLOWED_EXTENSIONS']
 
 
-@main_bp.route('/')
 @main_bp.route('/get_files')
 @jwt_required()
 def get_files():
@@ -59,6 +58,7 @@ def processar_arquivos():
             logger.error(f"Erro ao remover pasta de uploads '{upload_folder}': {e}", exc_info=True)
             flash(f"Erro interno do servidor ao limpar pasta de uploads. Tente novamente mais tarde. ({e})", 'danger')
             return redirect(url_for('main_bp.get_files'))
+
     os.makedirs(upload_folder)
 
     uploaded_count = 0
@@ -205,6 +205,27 @@ def criar_usuario():
     return render_template('criar_usuario.html', username=username_jwt, is_admin=current_admin_user.is_admin,
                            user_role="Administrador", csrf_token=csrf_token) # <--- ALTERADA ESTA LINHA
 
+@main_bp.route('/excluir_usuario/<int:user_id>', methods=['POST'])
+@jwt_required()
+def excluir_usuario(user_id):
+    username_jwt = get_jwt_identity()
+    current_user = User.query.filter_by(username=username_jwt).first()
+
+    if not current_user or not current_user.is_admin:
+        flash('Acesso negado. Apenas administradores podem excluir usuários.', 'danger')
+        return redirect(url_for('main_bp.listar_usuarios'))
+
+    user_to_delete = User.query.get_or_404(user_id)
+
+    if user_to_delete.username == username_jwt:
+        flash('Você não pode excluir sua própria conta.', 'danger')
+        return redirect(url_for('main_bp.listar_usuarios'))
+
+    db.session.delete(user_to_delete)
+    db.session.commit()
+    flash(f'Usuário {user_to_delete.username} foi excluído com sucesso.', 'success')
+    return redirect(url_for('main_bp.listar_usuarios'))
+
 def process_files_async(folder_path, sid):
     try:
         time.sleep(1.0)
@@ -224,3 +245,10 @@ def process_files_async(folder_path, sid):
         logger.error(f"Erro no processamento assíncrono: {e}", exc_info=True)
         socketio.emit('processing_complete', {'status': 'error', 'message': f'Erro ao processar arquivos: {e}'},
                       room=sid)
+    finally:
+        if os.path.exists(folder_path):
+            try:
+                shutil.rmtree(folder_path)
+                logger.info(f"Pasta de uploads '{folder_path}' removida após processamento.")
+            except OSError as e:
+                logger.error(f"Erro ao remover pasta de uploads '{folder_path}': {e}", exc_info=True)

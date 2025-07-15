@@ -88,6 +88,7 @@
                                 <th scope="col">Nome de Usuário</th>
                                 <th scope="col">Admin</th>
                                 <th scope="col">Professor</th>
+                                <th scope="col">Ações</th>
                                 </tr>
                         </thead>
                         <tbody>
@@ -97,6 +98,13 @@
                                 <td>{{ user.username }}</td>
                                 <td>{% if user.is_admin %}Sim{% else %}Não{% endif %}</td>
                                 <td>{% if user.is_professor %}Sim{% else %}Não{% endif %}</td>
+                                <td>
+                                    {% if user.username != username %}
+                                    <form action="{{ url_for('main_bp.excluir_usuario', user_id=user.id) }}" method="post" onsubmit="return confirm('Tem certeza que deseja excluir este usuário?');">
+                                        <button type="submit" class="btn btn-danger btn-sm">Excluir</button>
+                                    </form>
+                                    {% endif %}
+                                </td>
                                 </tr>
                             {% endfor %}
                         </tbody>
