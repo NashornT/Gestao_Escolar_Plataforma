@@ -194,11 +194,20 @@ def criar_usuario():
             return render_template('criar_usuario.html', username=username_jwt, is_admin=current_admin_user.is_admin,
                                    user_role="Administrador", csrf_token=csrf_token) # Passe o token aqui
 
-        new_user = User(username=username, is_admin=is_admin, is_professor=is_professor)
+        # Define a role com base nas permissões
+        user_role = 'student'  # Valor padrão
+        if is_admin:
+            user_role = 'admin'
+        elif is_professor:
+            user_role = 'professor'
+
+        # Cria o novo usuário com a role correta
+        new_user = User(username=username, is_admin=is_admin, is_professor=is_professor, role=user_role)
+
         new_user.set_password(password)
         db.session.add(new_user)
         db.session.commit()
-        flash(f'Usuário {username} criado com sucesso!', 'success')
+        flash(f'Usuário {username} criado com sucesso com o papel de \'{user_role}\'!', 'success')
         return redirect(url_for('main_bp.listar_usuarios'))
 
     # Para requisições GET:
