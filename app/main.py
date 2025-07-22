@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file, current_app
-from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask_login import login_required, current_user
 from app import db, socketio, logger
 from app.models import User
 from methods.extract_data import ExtractData
@@ -14,32 +14,26 @@ main_bp = Blueprint('main_bp', __name__, template_folder='../templates/main')
 
 
 def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in current_app.config['ALLOWED_EXTENSIONS']
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in current_app.config['ALLOWED_EXTENSIONS']
 
 
+@main_bp.route('/')
 @main_bp.route('/get_files')
-@jwt_required()
+@login_required
 def get_files():
-    username_jwt = get_jwt_identity()
-    user = User.query.filter_by(username=username_jwt).first()
-
-    if not user or not user.is_admin:
-        flash('Acesso negado. Apenas administradores podem acessar esta área.', 'danger')
-        return redirect(url_for('auth_bp.login'))
-
-    return render_template('index.html', username=username_jwt, is_admin=user.is_admin,
-                           user_role="Administrador" if user.is_admin else "Professor" if user.is_professor else "Usuário Comum")
-
+    return render_template(
+        'main/index.html',
+        username=current_user.username,
+        user_role=current_user.role
+    )
 
 @main_bp.route('/processar_arquivos', methods=['POST'])
-@jwt_required()
+@login_required
 def processar_arquivos():
-    username_jwt = get_jwt_identity()
-    user = User.query.filter_by(username=username_jwt).first()
-
-    if not user or not user.is_admin:
+    if not current_user.is_admin:
         flash('Acesso negado. Apenas administradores podem processar arquivos.', 'danger')
-        return redirect(url_for('auth_bp.login'))
+        return redirect(url_for('main_bp.get_files'))
 
     files = request.files.getlist('file')
     client_sid = request.form.get('socket_id')
@@ -82,13 +76,11 @@ def processar_arquivos():
 
 
 @main_bp.route('/baixar_dados', methods=['GET'])
-@jwt_required()
+@login_required
 def baixar_dados():
-    username_jwt = get_jwt_identity()
-    user = User.query.filter_by(username=username_jwt).first()
-    if not user or not user.is_admin:
-        flash('Acesso negado. Apenas administradores podem baixar dados.', 'danger')
-        return redirect(url_for('auth_bp.login'))
+    if not current_user.is_admin:
+        flash('Acesso negado. Apenas administradores podem baixar os dados.', 'danger')
+        return redirect(url_for('main_bp.get_files'))
 
     output, error = download_school_data()
 
@@ -106,12 +98,10 @@ def baixar_dados():
 
 
 @main_bp.route('/historico', methods=['POST'])
-@jwt_required()
+@login_required
 def historico():
-    username_jwt = get_jwt_identity()
-    user = User.query.filter_by(username=username_jwt).first()
-    if not user or (not user.is_admin and not user.is_professor):
-        flash('Acesso negado. Você não tem permissão para esta ação.', 'danger')
+    if not (current_user.is_admin or current_user.is_professor):
+        flash('Acesso negado.', 'danger')
         return redirect(url_for('main_bp.get_files'))
 
     aluno_nome = request.form.get('aluno')
@@ -135,37 +125,30 @@ def historico():
 
 
 @main_bp.route('/listar_usuarios')
-@jwt_required()
+@login_required
 def listar_usuarios():
-    username_jwt = get_jwt_identity()
-    user = User.query.filter_by(username=username_jwt).first()
-
-    if not user or not user.is_admin:
-        flash('Acesso negado. Apenas administradores podem listar usuários.', 'danger')
-        return redirect(url_for('auth_bp.login'))
+    if not current_user.is_admin:
+        flash('Acesso negado. Apenas administradores podem visualizar os usuários.', 'danger')
+        return redirect(url_for('main_bp.get_files'))
 
     users = User.query.all()
-    return render_template('listar_usuarios.html', users=users, username=username_jwt, is_admin=user.is_admin,
-                           user_role="Administrador")
+    return render_template(
+        'main/listar_usuarios.html',
+        users=users,
+        username=current_user.username,
+        user_role=current_user.role
+    )
 
 
 @main_bp.route('/criar_usuario', methods=['GET', 'POST'])
-@jwt_required()
+@login_required
 def criar_usuario():
-    username_jwt = get_jwt_identity()
-    current_admin_user = User.query.filter_by(username=username_jwt).first()
-
-    if not current_admin_user or not current_admin_user.is_admin:
+    if not current_user.is_admin:
         flash('Acesso negado. Apenas administradores podem criar usuários.', 'danger')
-        return redirect(url_for('auth_bp.login'))
-
-    # Obtenha o token CSRF diretamente do cookie
-    # O nome do cookie é definido por JWT_ACCESS_COOKIE_NAME ou JWT_COOKIE_CSRF_PROTECT
-    # Se JWT_CSRF_IN_COOKIES for True, o nome padrão é 'csrf_access_token'
-    csrf_token = request.cookies.get('csrf_access_token')
+        return redirect(url_for('main_bp.get_files'))
 
     if request.method == 'POST':
-        username = request.form.get('username').strip().lower()
+        username = request.form.get('username', '').strip().lower()
         password = request.form.get('password')
         confirm_password = request.form.get('confirm_password')
         is_admin = 'is_admin' in request.form
@@ -173,60 +156,48 @@ def criar_usuario():
 
         if not username or not password or not confirm_password:
             flash('Todos os campos são obrigatórios.', 'danger')
-            return render_template('criar_usuario.html', username=username_jwt, is_admin=current_admin_user.is_admin,
-                                   user_role="Administrador", csrf_token=csrf_token) # Passe o token aqui
+            return redirect(url_for('main_bp.criar_usuario'))
 
-        if len(password) < 8 or not any(char.isdigit() for char in password) or not any(
-                char.isupper() for char in password) or not any(char.islower() for char in password):
-            flash('A senha deve ter pelo menos 8 caracteres e incluir letras maiúsculas, minúsculas e números.',
-                  'danger')
-            return render_template('criar_usuario.html', username=username_jwt, is_admin=current_admin_user.is_admin,
-                                   user_role="Administrador", csrf_token=csrf_token) # Passe o token aqui
+        if len(password) < 8 or not any(c.isdigit() for c in password) or not any(c.isupper() for c in password) or not any(c.islower() for c in password):
+            flash('A senha deve ter pelo menos 8 caracteres e incluir letras maiúsculas, minúsculas e números.', 'danger')
+            return redirect(url_for('main_bp.criar_usuario'))
 
         if password != confirm_password:
             flash('As senhas não coincidem.', 'danger')
-            return render_template('criar_usuario.html', username=username_jwt, is_admin=current_admin_user.is_admin,
-                                   user_role="Administrador", csrf_token=csrf_token) # Passe o token aqui
+            return redirect(url_for('main_bp.criar_usuario'))
 
         existing_user = User.query.filter_by(username=username).first()
         if existing_user:
             flash('Nome de usuário já existe. Por favor, escolha outro.', 'danger')
-            return render_template('criar_usuario.html', username=username_jwt, is_admin=current_admin_user.is_admin,
-                                   user_role="Administrador", csrf_token=csrf_token) # Passe o token aqui
+            return redirect(url_for('main_bp.criar_usuario'))
 
-        # Define a role com base nas permissões
-        user_role = 'student'  # Valor padrão
-        if is_admin:
-            user_role = 'admin'
-        elif is_professor:
-            user_role = 'professor'
+        user_role = 'admin' if is_admin else 'professor' if is_professor else 'student'
 
-        # Cria o novo usuário com a role correta
         new_user = User(username=username, is_admin=is_admin, is_professor=is_professor, role=user_role)
-
         new_user.set_password(password)
+
         db.session.add(new_user)
         db.session.commit()
-        flash(f'Usuário {username} criado com sucesso com o papel de \'{user_role}\'!', 'success')
+        flash(f'Usuário {username} criado com sucesso com o papel de "{user_role}"!', 'success')
         return redirect(url_for('main_bp.listar_usuarios'))
 
-    # Para requisições GET:
-    return render_template('criar_usuario.html', username=username_jwt, is_admin=current_admin_user.is_admin,
-                           user_role="Administrador", csrf_token=csrf_token) # <--- ALTERADA ESTA LINHA
+    return render_template(
+        'main/criar_usuario.html',
+        username=current_user.username,
+        user_role=current_user.role
+    )
+
 
 @main_bp.route('/excluir_usuario/<int:user_id>', methods=['POST'])
-@jwt_required()
+@login_required
 def excluir_usuario(user_id):
-    username_jwt = get_jwt_identity()
-    current_user = User.query.filter_by(username=username_jwt).first()
-
-    if not current_user or not current_user.is_admin:
+    if not current_user.is_admin:
         flash('Acesso negado. Apenas administradores podem excluir usuários.', 'danger')
         return redirect(url_for('main_bp.listar_usuarios'))
 
     user_to_delete = User.query.get_or_404(user_id)
 
-    if user_to_delete.username == username_jwt:
+    if user_to_delete.id == current_user.id:
         flash('Você não pode excluir sua própria conta.', 'danger')
         return redirect(url_for('main_bp.listar_usuarios'))
 
@@ -234,6 +205,7 @@ def excluir_usuario(user_id):
     db.session.commit()
     flash(f'Usuário {user_to_delete.username} foi excluído com sucesso.', 'success')
     return redirect(url_for('main_bp.listar_usuarios'))
+
 
 def process_files_async(folder_path, sid):
     try:
