@@ -1,14 +1,11 @@
 from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for
 from flask_login import login_required, current_user
-from sqlalchemy.sql import select, update, insert
+from sqlalchemy.sql import select, update, insert, join
 from app import db, logger
-# Importa os objetos de tabela refletidos do __init__.py
-from app import turma_table, disciplina_table, aluno_table, nota_table
-# Importa o modelo User do models.py
-from app.models import User
+from app import turma_table, disciplina_table, aluno_table, nota_table, alunos_turma_table  # Importa a nova tabela
 import decimal
 
-professor_bp = Blueprint('professor_bp', __name__, url_prefix='/professor', template_folder='../templates/professor')
+professor_bp = Blueprint('professor_bp', __name__, url_prefix='/professor')
 
 
 @professor_bp.before_request
@@ -34,46 +31,53 @@ def gerenciar_notas():
         user_role=current_user.role
     )
 
+
 @professor_bp.route('/api/dados_turma')
 def api_dados_turma():
-    turma_id = request.args.get('turma_id', type=int)
+    turma_id = request.args.get('turma_id')
     disciplina_id = request.args.get('disciplina_id', type=int)
     if not turma_id or not disciplina_id:
         return jsonify({'error': 'ID da Turma e da Disciplina são obrigatórios'}), 400
 
     dados_formatados = []
-    # --- QUERIES NO BANCO ACADÊMICO ---
     academic_engine = db.get_engine(bind='academic')
     with academic_engine.connect() as connection:
-        query_alunos = select(aluno_table).where(aluno_table.c.turma_id == turma_id).order_by(aluno_table.c.nome)
+        # CORREÇÃO: Faz o JOIN entre alunos e alunos_turma para encontrar os alunos certos
+        j = join(aluno_table, alunos_turma_table, aluno_table.c.aluno_id == alunos_turma_table.c.aluno_id)
+        query_alunos = select(aluno_table.c.aluno_id, aluno_table.c.aluno).select_from(j).where(
+            alunos_turma_table.c.turma_id == turma_id).order_by(aluno_table.c.aluno)
         alunos = connection.execute(query_alunos).all()
 
         for aluno in alunos:
-            notas_aluno = {}
-            for bimestre in range(1, 5):
-                query_nota = select(nota_table).where(
-                    nota_table.c.aluno_id == aluno.id,
-                    nota_table.c.disciplina_id == disciplina_id,
-                    nota_table.c.bimestre == bimestre
-                )
-                registro = connection.execute(query_nota).first()
+            # Busca a ÚNICA linha de nota para este aluno e disciplina
+            query_nota = select(nota_table).where(
+                nota_table.c.aluno_id == aluno.aluno_id,
+                nota_table.c.disciplina_id == disciplina_id
+            )
+            registro_nota = connection.execute(query_nota).first()
 
-                if not registro:
-                    # Se não existir, insere um registro vazio
-                    stmt = insert(nota_table).values(aluno_id=aluno.id, disciplina_id=disciplina_id, bimestre=bimestre)
-                    result = connection.execute(stmt)
-                    # Busca o registro recém-criado para obter os valores padrão
-                    registro = connection.execute(
-                        select(nota_table).where(nota_table.c.id == result.inserted_primary_key[0])).first()
+            if not registro_nota:
+                # Se não existir, insere uma linha de nota vazia para o aluno
+                stmt = insert(nota_table).values(aluno_id=aluno.aluno_id, disciplina_id=disciplina_id,
+                                                 ano_letivo=turma_id.split('-')[-1].strip())
+                result = connection.execute(stmt)
+                connection.commit()
+                # Busca o registro recém-criado
+                registro_nota = connection.execute(
+                    select(nota_table).where(nota_table.c.nota_id == result.inserted_primary_key[0])).first()
 
-                notas_aluno[f'b{bimestre}'] = {
-                    'id': registro.id,
-                    'valor': registro.valor if registro.valor is not None else '',
-                    'faltas': registro.faltas if registro.faltas is not None else ''
-                }
-            dados_formatados.append({'id': aluno.id, 'nome': aluno.nome, 'notas': notas_aluno})
-
-        connection.commit()  # Comita todas as inserções de uma vez
+            # CORREÇÃO: Monta a estrutura de bimestres a partir das colunas
+            notas_aluno = {
+                'nota_id': registro_nota.nota_id,
+                'bimestres': {
+                    'b1': {'valor': registro_nota.nota_1_bimestre if registro_nota.nota_1_bimestre is not None else ''},
+                    'b2': {'valor': registro_nota.nota_2_bimestre if registro_nota.nota_2_bimestre is not None else ''},
+                    'b3': {'valor': registro_nota.nota_3_bimestre if registro_nota.nota_3_bimestre is not None else ''},
+                    'b4': {'valor': registro_nota.nota_4_bimestre if registro_nota.nota_4_bimestre is not None else ''}
+                },
+                'total_faltas': registro_nota.total_faltas if registro_nota.total_faltas is not None else ''
+            }
+            dados_formatados.append({'id': aluno.aluno_id, 'nome': aluno.aluno, 'dados_nota': notas_aluno})
 
     return jsonify(dados_formatados)
 
@@ -88,13 +92,24 @@ def api_atualizar_dados():
     with academic_engine.connect() as connection:
         try:
             for item in data['dados']:
-                # ... (sua lógica de validação aqui, exatamente como antes) ...
-                stmt = (
-                    update(nota_table)
-                    .where(nota_table.c.id == item.get('id'))
-                    .values(valor=item.get('valor'), faltas=item.get('faltas'))
-                # Adapte os nomes dos campos se necessário
-                )
+                nota_id = item.get('nota_id')
+                campo = item.get('campo')  # Ex: 'nota_1_bimestre' ou 'total_faltas'
+                valor_str = item.get('valor')
+
+                # Validação
+                valor = None
+                if valor_str not in [None, '']:
+                    if 'nota' in campo:
+                        valor = decimal.Decimal(valor_str)
+                        if not (0 <= valor <= 10):
+                            raise ValueError("Nota fora do intervalo (0-10).")
+                    else:  # Faltas
+                        valor = int(valor_str)
+                        if valor < 0:
+                            raise ValueError("Faltas não podem ser negativas.")
+
+                # CORREÇÃO: Monta o UPDATE para a coluna específica
+                stmt = update(nota_table).where(nota_table.c.nota_id == nota_id).values({campo: valor})
                 connection.execute(stmt)
 
             connection.commit()
@@ -102,4 +117,4 @@ def api_atualizar_dados():
         except Exception as e:
             connection.rollback()
             logger.error(f"Erro de banco de dados ao atualizar: {e}", exc_info=True)
-            return jsonify({'success': False, 'message': 'Ocorreu um erro interno ao salvar os dados.'}), 500
+            return jsonify({'success': False, 'message': f'Ocorreu um erro: {e}'}), 500
