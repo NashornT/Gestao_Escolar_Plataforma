@@ -7,8 +7,8 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body { background-color: #2c3e50; color: #ecf0f1; }
-        .card { border-radius: 0.75rem; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); }
-        .card-header { background-color: #3498db; color: #ecf0f1; font-weight: bold; border-top-left-radius: 0.75rem; border-top-right-radius: 0.75rem; }
+        .card { border-radius: 0.75rem; }
+        .card-header { background-color: #3498db; color: #ecf0f1; font-weight: bold; }
         .table-dark th, .table-dark td { vertical-align: middle; text-align: center; }
         .aluno-nome { text-align: left; }
         .form-control-sm.editable { background-color: #3b5067; color: white; border: 1px solid #4e6a87; text-align: center; max-width: 80px; }
@@ -106,96 +106,105 @@
     </div>
 
 <script>
-    // O JavaScript continua o mesmo da versão anterior, pois ele já
-    // funciona corretamente com a lógica de IDs do backend.
-    document.addEventListener('DOMContentLoaded', function() {
-        const turmaSelect = document.getElementById('turmaSelect');
-        const disciplinaSelect = document.getElementById('disciplinaSelect');
-        const loader = document.getElementById('loader');
-        const container = document.getElementById('tabela-container');
-        const tableBody = document.getElementById('tabela-body');
-        const salvarBtn = document.getElementById('salvarBtn');
+document.addEventListener('DOMContentLoaded', function() {
+    const turmaSelect = document.getElementById('turmaSelect');
+    const disciplinaSelect = document.getElementById('disciplinaSelect');
+    const loader = document.getElementById('loader');
+    const container = document.getElementById('tabela-container');
+    const tableBody = document.getElementById('tabela-body');
+    const salvarBtn = document.getElementById('salvarBtn');
 
-        turmaSelect.addEventListener('change', fetchData);
-        disciplinaSelect.addEventListener('change', fetchData);
-        salvarBtn.addEventListener('click', saveData);
+    turmaSelect.addEventListener('change', fetchData);
+    disciplinaSelect.addEventListener('change', fetchData);
+    salvarBtn.addEventListener('click', saveData);
 
-        function fetchData() {
-            const turmaId = turmaSelect.value;
-            const disciplinaId = disciplinaSelect.value;
-            if (!turmaId || !disciplinaId) return;
-
-            loader.classList.remove('hidden');
-            container.classList.add('hidden');
-            tableBody.innerHTML = '';
-
-            fetch(`/professor/api/dados_turma?turma_id=${turmaId}&disciplina_id=${disciplinaId}`)
-                .then(handleResponse)
-                .then(data => populateTable(data))
-                .catch(error => showAlert(error.message, 'danger'))
-                .finally(() => loader.classList.add('hidden'));
+    function formatarValor(valor) {
+        if (valor === null || valor === '' || isNaN(valor)) {
+            return '';
         }
-
-        function populateTable(alunos) {
-            if (alunos.length === 0) {
-                tableBody.innerHTML = '<tr><td colspan="6" class="text-center p-4">Nenhum aluno encontrado.</td></tr>';
-            } else {
-                alunos.forEach(aluno => {
-                    const dados = aluno.dados_nota;
-                    const row = `
-                        <tr>
-                            <td class="aluno-nome">${aluno.nome}</td>
-                            <td><input type="text" class="form-control form-control-sm editable" value="${dados.bimestres.b1.valor}" data-nota-id="${dados.nota_id}" data-campo="nota_1_bimestre"></td>
-                            <td><input type="text" class="form-control form-control-sm editable" value="${dados.bimestres.b2.valor}" data-nota-id="${dados.nota_id}" data-campo="nota_2_bimestre"></td>
-                            <td><input type="text" class="form-control form-control-sm editable" value="${dados.bimestres.b3.valor}" data-nota-id="${dados.nota_id}" data-campo="nota_3_bimestre"></td>
-                            <td><input type="text" class="form-control form-control-sm editable" value="${dados.bimestres.b4.valor}" data-nota-id="${dados.nota_id}" data-campo="nota_4_bimestre"></td>
-                            <td><input type="text" class="form-control form-control-sm editable" value="${dados.total_faltas}" data-nota-id="${dados.nota_id}" data-campo="total_faltas"></td>
-                        </tr>
-                    `;
-                    tableBody.insertAdjacentHTML('beforeend', row);
-                });
-            }
-            container.classList.remove('hidden');
+        const numero = parseFloat(valor);
+        if (numero % 1 === 0) {
+            return numero.toFixed(0);
         }
+        return numero.toFixed(1);
+    }
 
-        function saveData() {
-            const dadosParaSalvar = [];
-            tableBody.querySelectorAll('input.editable').forEach(input => {
-                dadosParaSalvar.push({
-                    nota_id: input.dataset.notaId,
-                    campo: input.dataset.campo,
-                    valor: input.value.trim().replace(',', '.')
-                });
-            });
+    function fetchData() {
+        const turmaId = turmaSelect.value;
+        const disciplinaId = disciplinaSelect.value;
+        if (!turmaId || !disciplinaId) return;
 
-            salvarBtn.disabled = true;
-            salvarBtn.textContent = 'Salvando...';
+        loader.classList.remove('hidden');
+        container.classList.add('hidden');
+        tableBody.innerHTML = '';
 
-            fetch('/professor/api/atualizar_dados', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ dados: dadosParaSalvar })
-            })
+        fetch(`/professor/api/dados_turma?turma_id=${turmaId}&disciplina_id=${disciplinaId}`)
             .then(handleResponse)
-            .then(data => showAlert(data.message, 'success'))
+            .then(data => populateTable(data))
             .catch(error => showAlert(error.message, 'danger'))
-            .finally(() => {
-                salvarBtn.disabled = false;
-                salvarBtn.textContent = 'Salvar Alterações';
+            .finally(() => loader.classList.add('hidden'));
+    }
+
+    function populateTable(alunos) {
+        if (alunos.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="6" class="text-center p-4">Nenhum aluno encontrado para esta turma.</td></tr>';
+        } else {
+            alunos.forEach(aluno => {
+                const dados = aluno.dados_nota;
+                const row = `
+                    <tr>
+                        <td class="aluno-nome">${aluno.nome}</td>
+                        <td><input type="text" class="form-control form-control-sm editable" value="${formatarValor(dados.bimestres.b1.valor)}" data-nota-id="${dados.nota_id}" data-campo="nota_1_bimestre"></td>
+                        <td><input type="text" class="form-control form-control-sm editable" value="${formatarValor(dados.bimestres.b2.valor)}" data-nota-id="${dados.nota_id}" data-campo="nota_2_bimestre"></td>
+                        <td><input type="text" class="form-control form-control-sm editable" value="${formatarValor(dados.bimestres.b3.valor)}" data-nota-id="${dados.nota_id}" data-campo="nota_3_bimestre"></td>
+                        <td><input type="text" class="form-control form-control-sm editable" value="${formatarValor(dados.bimestres.b4.valor)}" data-nota-id="${dados.nota_id}" data-campo="nota_4_bimestre"></td>
+                        <td><input type="text" class="form-control form-control-sm editable" value="${formatarValor(dados.total_faltas)}" data-nota-id="${dados.nota_id}" data-campo="total_faltas"></td>
+                    </tr>
+                `;
+                tableBody.insertAdjacentHTML('beforeend', row);
             });
         }
+        container.classList.remove('hidden');
+    }
 
-        async function handleResponse(response) {
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.message || 'Ocorreu um erro.');
-            return data;
-        }
+    function saveData() {
+        const dadosParaSalvar = [];
+        tableBody.querySelectorAll('input.editable').forEach(input => {
+            dadosParaSalvar.push({
+                nota_id: input.dataset.notaId,
+                campo: input.dataset.campo,
+                valor: input.value.trim().replace(',', '.')
+            });
+        });
 
-        function showAlert(message, type) {
-            const placeholder = document.getElementById('alert-placeholder');
-            placeholder.innerHTML = `<div class="alert alert-${type} alert-dismissible fade show" role="alert">${message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
-        }
-    });
+        salvarBtn.disabled = true;
+        salvarBtn.textContent = 'Salvando...';
+
+        fetch('/professor/api/atualizar_dados', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ dados: dadosParaSalvar })
+        })
+        .then(handleResponse)
+        .then(data => showAlert(data.message, 'success'))
+        .catch(error => showAlert(error.message, 'danger'))
+        .finally(() => {
+            salvarBtn.disabled = false;
+            salvarBtn.textContent = 'Salvar Alterações';
+        });
+    }
+
+    async function handleResponse(response) {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || 'Ocorreu um erro.');
+        return data;
+    }
+
+    function showAlert(message, type) {
+        const placeholder = document.getElementById('alert-placeholder');
+        placeholder.innerHTML = `<div class="alert alert-${type} alert-dismissible fade show" role="alert">${message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+    }
+});
 </script>
 </body>
 </html>
