@@ -26,6 +26,7 @@ class ClassStudents:
                 "turma_id": student_class_id,
                 "ano_escolar": self.student_year,
                 "turno": shift,
+                "fk_turma": student_class_id,  # Generate a unique identifier for the class
             })
             prev_element = student_class_id
 

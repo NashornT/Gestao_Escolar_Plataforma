@@ -88,8 +88,10 @@ class Grades:
                     sum_grades = sum(grades_dict.get("notas_final"))
                     average_grades = sum_grades / 4 if sum_grades else 0.0
 
+                    nota_id = str(uuid.uuid4())
+
                     grades.append({
-                            "nota_id": str(uuid.uuid4()),
+                            "nota_id": nota_id,
                             "aluno_id": generate_uuid(str(student)),
                             "ano_letivo": self.student_year,
                             "disciplina_id": self.disciplines_id[discipline],
@@ -108,6 +110,7 @@ class Grades:
                             "nota_total": sum_grades,
                             "media_final": average_grades,
                             "total_faltas": tot_absences,
+                            "fk_nota": nota_id,  # Generate a unique identifier for the grade
                         })
 
         return grades
