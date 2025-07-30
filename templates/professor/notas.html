@@ -74,11 +74,8 @@
                     </div>
                     <div class="col-md">
                         <label for="disciplinaSelect" class="form-label">Disciplina</label>
-                        <select id="disciplinaSelect" class="form-select bg-dark text-white">
-                            <option selected disabled value="">Selecione uma disciplina...</option>
-                            {% for disciplina_item in disciplinas %}
-                                <option value="{{ disciplina_item.disciplina_id }}">{{ disciplina_item.disciplina }}</option>
-                            {% endfor %}
+                        <select id="disciplinaSelect" class="form-select bg-dark text-white" disabled>
+                            <option selected disabled value="">Selecione uma turma primeiro...</option>
                         </select>
                     </div>
                 </div>
@@ -114,35 +111,48 @@ document.addEventListener('DOMContentLoaded', function() {
     const tableBody = document.getElementById('tabela-body');
     const salvarBtn = document.getElementById('salvarBtn');
 
-    turmaSelect.addEventListener('change', fetchData);
-    disciplinaSelect.addEventListener('change', fetchData);
+    turmaSelect.addEventListener('change', function() {
+        const turmaId = this.value;
+        disciplinaSelect.innerHTML = '<option selected disabled value="">Carregando...</option>';
+        disciplinaSelect.disabled = true;
+        container.classList.add('hidden');
+        if (!turmaId) return;
+        fetch(`/professor/api/disciplinas_por_turma?turma_id=${turmaId}`)
+            .then(handleResponse)
+            .then(disciplinas => {
+                disciplinaSelect.innerHTML = '<option selected disabled value="">Selecione uma disciplina...</option>';
+                disciplinas.forEach(d => {
+                    disciplinaSelect.innerHTML += `<option value="${d.disciplina_id}">${d.disciplina}</option>`;
+                });
+                disciplinaSelect.disabled = false;
+            })
+            .catch(error => {
+                showAlert(error.message, 'danger');
+                disciplinaSelect.innerHTML = '<option selected disabled value="">Erro ao carregar</option>';
+            });
+    });
+
+    disciplinaSelect.addEventListener('change', fetchAlunos);
     salvarBtn.addEventListener('click', saveData);
 
-    function formatarValor(valor) {
-        if (valor === null || valor === '' || isNaN(valor)) {
-            return '';
-        }
-        const numero = parseFloat(valor);
-        if (numero % 1 === 0) {
-            return numero.toFixed(0);
-        }
-        return numero.toFixed(1);
-    }
-
-    function fetchData() {
+    function fetchAlunos() {
         const turmaId = turmaSelect.value;
         const disciplinaId = disciplinaSelect.value;
         if (!turmaId || !disciplinaId) return;
-
         loader.classList.remove('hidden');
         container.classList.add('hidden');
         tableBody.innerHTML = '';
-
         fetch(`/professor/api/dados_turma?turma_id=${turmaId}&disciplina_id=${disciplinaId}`)
             .then(handleResponse)
             .then(data => populateTable(data))
             .catch(error => showAlert(error.message, 'danger'))
             .finally(() => loader.classList.add('hidden'));
+    }
+
+    function formatarValor(valor) {
+        if (valor === null || valor === '' || isNaN(valor)) return '';
+        const numero = parseFloat(valor);
+        return numero % 1 === 0 ? numero.toFixed(0) : numero.toFixed(1);
     }
 
     function populateTable(alunos) {
@@ -180,6 +190,8 @@ document.addEventListener('DOMContentLoaded', function() {
         salvarBtn.disabled = true;
         salvarBtn.textContent = 'Salvando...';
 
+        // ===== CORREÇÃO AQUI =====
+        // Adiciona o prefixo /professor na URL
         fetch('/professor/api/atualizar_dados', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
