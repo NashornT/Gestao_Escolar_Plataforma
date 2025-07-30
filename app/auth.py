@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, redirect, url_for, request, flash
 from app.models import User
 from app import db
 from flask_login import login_user, logout_user, login_required, current_user
+from app import turma_table, disciplina_table, professor_table, professores_turmas_disciplinas_table
 from datetime import datetime
 
 # A correção está na linha abaixo.

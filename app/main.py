@@ -1,14 +1,18 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file, current_app
 from flask_login import login_required, current_user
-from app import db, socketio, logger
+from sqlalchemy.sql import select
+from app import db, socketio, logger, turma_table, disciplina_table, professor_table, \
+    professores_turmas_disciplinas_table
 from app.models import User
 from methods.extract_data import ExtractData
 from methods.create_school_history import school_history
 from methods.download_data import download_school_data
+from datetime import datetime
 import os
 import shutil
 import time
-from datetime import datetime
+import json
+import uuid
 
 main_bp = Blueprint('main_bp', __name__, template_folder='../templates/main')
 
@@ -147,44 +151,79 @@ def criar_usuario():
         flash('Acesso negado. Apenas administradores podem criar usuários.', 'danger')
         return redirect(url_for('main_bp.get_files'))
 
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        turmas = connection.execute(select(turma_table).order_by(turma_table.c.turma, turma_table.c.turno)).all()
+        disciplinas = connection.execute(select(disciplina_table).order_by(disciplina_table.c.disciplina)).all()
+
     if request.method == 'POST':
         username = request.form.get('username', '').strip().lower()
         password = request.form.get('password')
-        confirm_password = request.form.get('confirm_password')
         is_admin = 'is_admin' in request.form
         is_professor = 'is_professor' in request.form
+        nome_completo = request.form.get('nome_completo')
+        atribuicoes_json = request.form.get('atribuicoes', '[]')
 
-        if not username or not password or not confirm_password:
-            flash('Todos os campos são obrigatórios.', 'danger')
-            return redirect(url_for('main_bp.criar_usuario'))
+        # Adicione aqui suas validações de senha, etc.
 
-        if len(password) < 8 or not any(c.isdigit() for c in password) or not any(c.isupper() for c in password) or not any(c.islower() for c in password):
-            flash('A senha deve ter pelo menos 8 caracteres e incluir letras maiúsculas, minúsculas e números.', 'danger')
-            return redirect(url_for('main_bp.criar_usuario'))
+        session_app = db.session()
+        conn_academic = academic_engine.connect()
+        trans_academic = conn_academic.begin()
 
-        if password != confirm_password:
-            flash('As senhas não coincidem.', 'danger')
-            return redirect(url_for('main_bp.criar_usuario'))
+        try:
+            user_role = 'admin' if is_admin else 'professor' if is_professor else 'student'
+            new_professor_id = str(uuid.uuid4()) if is_professor else None
 
-        existing_user = User.query.filter_by(username=username).first()
-        if existing_user:
-            flash('Nome de usuário já existe. Por favor, escolha outro.', 'danger')
-            return redirect(url_for('main_bp.criar_usuario'))
+            new_user = User(
+                username=username,
+                is_admin=is_admin,
+                is_professor=is_professor,
+                role=user_role,
+                professor_id=new_professor_id
+            )
+            new_user.set_password(password)
+            session_app.add(new_user)
 
-        user_role = 'admin' if is_admin else 'professor' if is_professor else 'student'
+            if is_professor:
+                if not nome_completo:
+                    raise ValueError("O campo 'Nome Completo' é obrigatório para professores.")
 
-        new_user = User(username=username, is_admin=is_admin, is_professor=is_professor, role=user_role)
-        new_user.set_password(password)
+                stmt_prof = professor_table.insert().values(
+                    professor_id=new_professor_id,
+                    nome=nome_completo
+                )
+                conn_academic.execute(stmt_prof)
 
-        db.session.add(new_user)
-        db.session.commit()
-        flash(f'Usuário {username} criado com sucesso com o papel de "{user_role}"!', 'success')
-        return redirect(url_for('main_bp.listar_usuarios'))
+                atribuicoes = json.loads(atribuicoes_json)
+                for atr in atribuicoes:
+                    stmt_atr = professores_turmas_disciplinas_table.insert().values(
+                        professor_id=new_professor_id,
+                        turma_id=atr['turma_id'],
+                        disciplina_id=atr['disciplina_id'],
+                        ano_letivo=atr['ano_letivo']
+                    )
+                    conn_academic.execute(stmt_atr)
+
+            session_app.commit()
+            trans_academic.commit()
+
+            flash(f'Usuário {username} criado com sucesso!', 'success')
+            return redirect(url_for('main_bp.listar_usuarios'))
+
+        except Exception as e:
+            session_app.rollback()
+            trans_academic.rollback()
+            logger.error(f"Erro ao criar usuário: {e}", exc_info=True)
+            flash(f'Erro ao criar usuário: {e}', 'danger')
+        finally:
+            conn_academic.close()
 
     return render_template(
         'main/criar_usuario.html',
         username=current_user.username,
-        user_role=current_user.role
+        user_role=current_user.role,
+        turmas=turmas,
+        disciplinas=disciplinas
     )
 
 

@@ -11,12 +11,13 @@ login_manager = LoginManager()
 socketio = SocketIO()
 logger = logging.getLogger(__name__)
 
-# Declara as variáveis de tabela
 turma_table = None
 disciplina_table = None
 aluno_table = None
 nota_table = None
-alunos_turma_table = None # <-- ADICIONADO
+alunos_turma_table = None
+professor_table = None
+professores_turmas_disciplinas_table = None
 
 def create_app():
     app = Flask(__name__)
@@ -31,15 +32,17 @@ def create_app():
     setup_logging()
 
     # Carrega as tabelas do banco acadêmico
-    global turma_table, disciplina_table, aluno_table, nota_table, alunos_turma_table # <-- ADICIONADO
+    global turma_table, disciplina_table, aluno_table, nota_table, alunos_turma_table, professor_table, professores_turmas_disciplinas_table
     with app.app_context():
         try:
             academic_engine = db.get_engine(bind='academic')
-            turma_table = Table('turmas', db.metadata, autoload_with=academic_engine) # Nome da tabela é 'turmas'
-            disciplina_table = Table('materias', db.metadata, autoload_with=academic_engine) # Nome da tabela é 'materias'
-            aluno_table = Table('alunos', db.metadata, autoload_with=academic_engine) # Nome da tabela é 'alunos'
-            nota_table = Table('notas', db.metadata, autoload_with=academic_engine) # Nome da tabela é 'notas'
-            alunos_turma_table = Table('alunos_turma', db.metadata, autoload_with=academic_engine) # <-- ADICIONADO
+            turma_table = Table('turmas', db.metadata, autoload_with=academic_engine)
+            disciplina_table = Table('materias', db.metadata, autoload_with=academic_engine)
+            aluno_table = Table('alunos', db.metadata, autoload_with=academic_engine)
+            nota_table = Table('notas', db.metadata, autoload_with=academic_engine)
+            alunos_turma_table = Table('alunos_turma', db.metadata, autoload_with=academic_engine)
+            professor_table = Table('professores', db.metadata, autoload_with=academic_engine) # <-- ADICIONADO
+            professores_turmas_disciplinas_table = Table('professores_turmas_disciplinas', db.metadata, autoload_with=academic_engine) # <-- ADICIONADO
             logger.info("Tabelas do banco de dados acadêmico refletidas com sucesso.")
         except Exception as e:
             logger.error(f"Falha ao refletir as tabelas do banco 'academic': {e}", exc_info=True)

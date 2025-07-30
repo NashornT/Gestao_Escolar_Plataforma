@@ -1,9 +1,9 @@
-# ETL_Excel/run.py
-
 from app import create_app, socketio
+from tools import create_super_user
 
 # Cria a instância da aplicação usando a factory function do __init__.py
 app = create_app()
+create_super_user.create_admin(app)
 
 if __name__ == '__main__':
     # Usa o socketio.run() para que o servidor web suporte WebSockets,

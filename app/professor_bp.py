@@ -1,8 +1,8 @@
 from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for
 from flask_login import login_required, current_user
-from sqlalchemy.sql import select, update, insert, join
+from sqlalchemy.sql import select, update, insert, join, distinct
 from app import db, logger
-from app import turma_table, disciplina_table, aluno_table, nota_table, alunos_turma_table
+from app import turma_table, disciplina_table, aluno_table, nota_table, alunos_turma_table, professor_table, professores_turmas_disciplinas_table
 from datetime import datetime
 import decimal
 
@@ -19,20 +19,60 @@ def check_professor_permission():
 
 @professor_bp.route('/notas')
 def gerenciar_notas():
+    username = current_user.username
+    user_role = current_user.role
+
+    # Pega o ID do professor a partir do usuário logado
+    professor_id_logado = current_user.professor_id
+
+    turmas_atribuidas = []
+    disciplinas_atribuidas = []
+
     academic_engine = db.get_engine(bind='academic')
     with academic_engine.connect() as connection:
-        turmas = connection.execute(select(turma_table).order_by(turma_table.c.turma, turma_table.c.turno)).all()
-        disciplinas = connection.execute(select(disciplina_table).order_by(disciplina_table.c.disciplina)).all()
+        if professor_id_logado:
+            # ===== INÍCIO DA CORREÇÃO =====
+
+            # Query para buscar apenas as TURMAS atribuídas a este professor
+            join_turmas = join(turma_table, professores_turmas_disciplinas_table,
+                               turma_table.c.turma_id == professores_turmas_disciplinas_table.c.turma_id)
+
+            query_turmas = select(
+                distinct(turma_table.c.turma_id),
+                turma_table.c.turma,
+                turma_table.c.turno
+            ).select_from(join_turmas).where(
+                professores_turmas_disciplinas_table.c.professor_id == professor_id_logado
+            ).order_by(turma_table.c.turma, turma_table.c.turno)
+
+            turmas_atribuidas = connection.execute(query_turmas).all()
+
+            # Query para buscar apenas as DISCIPLINAS atribuídas a este professor
+            join_disciplinas = join(disciplina_table, professores_turmas_disciplinas_table,
+                                    disciplina_table.c.disciplina_id == professores_turmas_disciplinas_table.c.disciplina_id)
+
+            query_disciplinas = select(
+                distinct(disciplina_table.c.disciplina_id),
+                disciplina_table.c.disciplina
+            ).select_from(join_disciplinas).where(
+                professores_turmas_disciplinas_table.c.professor_id == professor_id_logado
+            ).order_by(disciplina_table.c.disciplina)
+
+            disciplinas_atribuidas = connection.execute(query_disciplinas).all()
+
+            # ===== FIM DA CORREÇÃO =====
 
     return render_template(
         'professor/notas.html',
-        turmas=turmas,
-        disciplinas=disciplinas,
-        username=current_user.username,
-        user_role=current_user.role
+        turmas=turmas_atribuidas,
+        disciplinas=disciplinas_atribuidas,
+        username=username,
+        user_role=user_role
     )
 
 
+# O restante do arquivo (api_dados_turma, api_atualizar_dados) não precisa de alterações,
+# pois ele já opera com os IDs de turma e disciplina que o professor seleciona na interface.
 @professor_bp.route('/api/dados_turma')
 def api_dados_turma():
     turma_id = request.args.get('turma_id')
@@ -44,39 +84,32 @@ def api_dados_turma():
     dados_formatados = []
     academic_engine = db.get_engine(bind='academic')
     with academic_engine.connect() as connection:
-        # Passo 1: Busca o ano escolar da turma selecionada para garantir que temos o valor correto.
         query_ano_letivo = select(turma_table.c.ano_escolar).where(turma_table.c.turma_id == turma_id)
         ano_letivo = connection.execute(query_ano_letivo).scalar_one_or_none()
 
-        # Se não encontrar, usa o ano atual como um fallback seguro.
         if not ano_letivo:
             ano_letivo = str(datetime.now().year)
 
-        # Passo 2: Busca todos os alunos da turma usando a tabela de junção.
         j = join(aluno_table, alunos_turma_table, aluno_table.c.aluno_id == alunos_turma_table.c.aluno_id)
         query_alunos = select(aluno_table.c.aluno_id, aluno_table.c.aluno).select_from(j).where(
             alunos_turma_table.c.turma_id == turma_id).order_by(aluno_table.c.aluno)
         alunos = connection.execute(query_alunos).all()
 
         for aluno in alunos:
-            # Passo 3: Para cada aluno, busca sua linha de notas.
             query_nota = select(nota_table).where(
                 nota_table.c.aluno_id == aluno.aluno_id,
                 nota_table.c.disciplina_id == disciplina_id
             )
             registro_nota = connection.execute(query_nota).first()
 
-            # Passo 4: Se não houver registro de nota, cria um novo usando o ano letivo correto.
             if not registro_nota:
                 stmt = insert(nota_table).values(aluno_id=aluno.aluno_id, disciplina_id=disciplina_id,
                                                  ano_letivo=ano_letivo)
                 result = connection.execute(stmt)
                 connection.commit()
-                # Busca o registro que acabamos de criar para obter todos os seus campos.
                 registro_nota = connection.execute(
                     select(nota_table).where(nota_table.c.nota_id == result.inserted_primary_key[0])).first()
 
-            # Passo 5: Monta a estrutura de dados para enviar ao frontend.
             notas_aluno = {
                 'nota_id': registro_nota.nota_id,
                 'bimestres': {
