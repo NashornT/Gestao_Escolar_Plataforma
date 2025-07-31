@@ -42,10 +42,16 @@ class IntermediateTables:
 
 
             # TODO: Implement logic to retrieve professor_id and disciplina_id
-            professors_disciplines.append({
-                "professor_id": "NOT IMPLEMENTED",
-                "disciplina_id": "NOT IMPLEMENTED",
-            })
+            # professors_disciplines.append({
+            #     "professor_id": "NOT IMPLEMENTED",
+            #     "disciplina_id": "NOT IMPLEMENTED",
+            # })
+
+
+        professors_disciplines.append({
+            "professor_id": "NOT IMPLEMENTED",
+            "disciplina_id": "NOT IMPLEMENTED",
+        })
 
         return studants_classes, disciplines_classes, professors_disciplines
 

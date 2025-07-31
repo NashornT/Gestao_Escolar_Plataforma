@@ -28,7 +28,8 @@ class Disciplina:
                     d_name = d.upper()
 
                 disciplines.append(
-                    {"disciplina_id": self.disciplines_id[d], "disciplina": self.__remove_accentuation(d_name)})
+                    {"disciplina_id": self.disciplines_id[d], "disciplina": self.__remove_accentuation(d_name),
+                "fk_disciplina": self.disciplines_id[d]})
 
         return disciplines
 

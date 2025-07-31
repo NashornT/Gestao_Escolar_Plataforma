@@ -1,46 +1,65 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file, current_app
-from flask_jwt_extended import jwt_required, get_jwt_identity
-from app import db, socketio, logger
+from flask_login import login_required, current_user
+from sqlalchemy.sql import select, join, distinct
+from app import db, socketio, logger, turma_table, disciplina_table, professor_table, \
+    professores_turmas_disciplinas_table
 from app.models import User
 from methods.extract_data import ExtractData
 from methods.create_school_history import school_history
 from methods.download_data import download_school_data
+from datetime import datetime
 import os
 import shutil
 import time
-from datetime import datetime
+import json
+import uuid
 
 main_bp = Blueprint('main_bp', __name__, template_folder='../templates/main')
 
 
 def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in current_app.config['ALLOWED_EXTENSIONS']
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in current_app.config['ALLOWED_EXTENSIONS']
 
 
 @main_bp.route('/')
 @main_bp.route('/get_files')
-@jwt_required()
+@login_required
 def get_files():
-    username_jwt = get_jwt_identity()
-    user = User.query.filter_by(username=username_jwt).first()
+    atribuicoes = []
+    # Se o usuário logado for um professor, busca suas atribuições
+    if current_user.is_professor:
+        academic_engine = db.get_engine(bind='academic')
+        with academic_engine.connect() as connection:
+            # Query que junta as 3 tabelas para obter os nomes legíveis
+            j = join(professores_turmas_disciplinas_table, turma_table,
+                     professores_turmas_disciplinas_table.c.turma_id == turma_table.c.turma_id)
+            j = join(j, disciplina_table,
+                     professores_turmas_disciplinas_table.c.disciplina_id == disciplina_table.c.disciplina_id)
 
-    if not user or not user.is_admin:
-        flash('Acesso negado. Apenas administradores podem acessar esta área.', 'danger')
-        return redirect(url_for('auth_bp.login'))
+            query = select(
+                turma_table.c.turma,
+                turma_table.c.turno,
+                disciplina_table.c.disciplina
+            ).select_from(j).where(
+                professores_turmas_disciplinas_table.c.professor_id == current_user.professor_id
+            ).order_by(turma_table.c.turma, disciplina_table.c.disciplina)
 
-    return render_template('index.html', username=username_jwt, is_admin=user.is_admin,
-                           user_role="Administrador" if user.is_admin else "Professor" if user.is_professor else "Usuário Comum")
+            atribuicoes = connection.execute(query).all()
 
+    return render_template(
+        'main/index.html',
+        username=current_user.username,
+        user_role=current_user.role,
+        atribuicoes=atribuicoes  # Envia a lista de atribuições para o template
+    )
 
 @main_bp.route('/processar_arquivos', methods=['POST'])
-@jwt_required()
+@login_required
 def processar_arquivos():
-    username_jwt = get_jwt_identity()
-    user = User.query.filter_by(username=username_jwt).first()
-
-    if not user or not user.is_admin:
+    if not current_user.is_admin:
         flash('Acesso negado. Apenas administradores podem processar arquivos.', 'danger')
-        return redirect(url_for('auth_bp.login'))
+        return redirect(url_for('main_bp.get_files'))
 
     files = request.files.getlist('file')
     client_sid = request.form.get('socket_id')
@@ -59,6 +78,7 @@ def processar_arquivos():
             logger.error(f"Erro ao remover pasta de uploads '{upload_folder}': {e}", exc_info=True)
             flash(f"Erro interno do servidor ao limpar pasta de uploads. Tente novamente mais tarde. ({e})", 'danger')
             return redirect(url_for('main_bp.get_files'))
+
     os.makedirs(upload_folder)
 
     uploaded_count = 0
@@ -82,13 +102,11 @@ def processar_arquivos():
 
 
 @main_bp.route('/baixar_dados', methods=['GET'])
-@jwt_required()
+@login_required
 def baixar_dados():
-    username_jwt = get_jwt_identity()
-    user = User.query.filter_by(username=username_jwt).first()
-    if not user or not user.is_admin:
-        flash('Acesso negado. Apenas administradores podem baixar dados.', 'danger')
-        return redirect(url_for('auth_bp.login'))
+    if not current_user.is_admin:
+        flash('Acesso negado. Apenas administradores podem baixar os dados.', 'danger')
+        return redirect(url_for('main_bp.get_files'))
 
     output, error = download_school_data()
 
@@ -106,12 +124,10 @@ def baixar_dados():
 
 
 @main_bp.route('/historico', methods=['POST'])
-@jwt_required()
+@login_required
 def historico():
-    username_jwt = get_jwt_identity()
-    user = User.query.filter_by(username=username_jwt).first()
-    if not user or (not user.is_admin and not user.is_professor):
-        flash('Acesso negado. Você não tem permissão para esta ação.', 'danger')
+    if not (current_user.is_admin or current_user.is_professor):
+        flash('Acesso negado.', 'danger')
         return redirect(url_for('main_bp.get_files'))
 
     aluno_nome = request.form.get('aluno')
@@ -135,75 +151,121 @@ def historico():
 
 
 @main_bp.route('/listar_usuarios')
-@jwt_required()
+@login_required
 def listar_usuarios():
-    username_jwt = get_jwt_identity()
-    user = User.query.filter_by(username=username_jwt).first()
-
-    if not user or not user.is_admin:
-        flash('Acesso negado. Apenas administradores podem listar usuários.', 'danger')
-        return redirect(url_for('auth_bp.login'))
+    if not current_user.is_admin:
+        flash('Acesso negado. Apenas administradores podem visualizar os usuários.', 'danger')
+        return redirect(url_for('main_bp.get_files'))
 
     users = User.query.all()
-    return render_template('listar_usuarios.html', users=users, username=username_jwt, is_admin=user.is_admin,
-                           user_role="Administrador")
+    return render_template(
+        'main/listar_usuarios.html',
+        users=users,
+        username=current_user.username,
+        user_role=current_user.role
+    )
 
 
 @main_bp.route('/criar_usuario', methods=['GET', 'POST'])
-@jwt_required()
+@login_required
 def criar_usuario():
-    username_jwt = get_jwt_identity()
-    current_admin_user = User.query.filter_by(username=username_jwt).first()
-
-    if not current_admin_user or not current_admin_user.is_admin:
+    if not current_user.is_admin:
         flash('Acesso negado. Apenas administradores podem criar usuários.', 'danger')
-        return redirect(url_for('auth_bp.login'))
+        return redirect(url_for('main_bp.get_files'))
 
-    # Obtenha o token CSRF diretamente do cookie
-    # O nome do cookie é definido por JWT_ACCESS_COOKIE_NAME ou JWT_COOKIE_CSRF_PROTECT
-    # Se JWT_CSRF_IN_COOKIES for True, o nome padrão é 'csrf_access_token'
-    csrf_token = request.cookies.get('csrf_access_token')
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        turmas = connection.execute(select(turma_table).order_by(turma_table.c.turma, turma_table.c.turno)).all()
+        disciplinas = connection.execute(select(disciplina_table).order_by(disciplina_table.c.disciplina)).all()
 
     if request.method == 'POST':
-        username = request.form.get('username').strip().lower()
+        username = request.form.get('username', '').strip().lower()
         password = request.form.get('password')
-        confirm_password = request.form.get('confirm_password')
         is_admin = 'is_admin' in request.form
         is_professor = 'is_professor' in request.form
+        nome_completo = request.form.get('nome_completo')
+        atribuicoes_json = request.form.get('atribuicoes', '[]')
 
-        if not username or not password or not confirm_password:
-            flash('Todos os campos são obrigatórios.', 'danger')
-            return render_template('criar_usuario.html', username=username_jwt, is_admin=current_admin_user.is_admin,
-                                   user_role="Administrador", csrf_token=csrf_token) # Passe o token aqui
 
-        if len(password) < 8 or not any(char.isdigit() for char in password) or not any(
-                char.isupper() for char in password) or not any(char.islower() for char in password):
-            flash('A senha deve ter pelo menos 8 caracteres e incluir letras maiúsculas, minúsculas e números.',
-                  'danger')
-            return render_template('criar_usuario.html', username=username_jwt, is_admin=current_admin_user.is_admin,
-                                   user_role="Administrador", csrf_token=csrf_token) # Passe o token aqui
+        session_app = db.session()
+        conn_academic = academic_engine.connect()
+        trans_academic = conn_academic.begin()
 
-        if password != confirm_password:
-            flash('As senhas não coincidem.', 'danger')
-            return render_template('criar_usuario.html', username=username_jwt, is_admin=current_admin_user.is_admin,
-                                   user_role="Administrador", csrf_token=csrf_token) # Passe o token aqui
+        try:
+            user_role = 'admin' if is_admin else 'professor' if is_professor else 'student'
+            new_professor_id = str(uuid.uuid4()) if is_professor else None
 
-        existing_user = User.query.filter_by(username=username).first()
-        if existing_user:
-            flash('Nome de usuário já existe. Por favor, escolha outro.', 'danger')
-            return render_template('criar_usuario.html', username=username_jwt, is_admin=current_admin_user.is_admin,
-                                   user_role="Administrador", csrf_token=csrf_token) # Passe o token aqui
+            new_user = User(
+                username=username,
+                is_admin=is_admin,
+                is_professor=is_professor,
+                role=user_role,
+                professor_id=new_professor_id
+            )
+            new_user.set_password(password)
+            session_app.add(new_user)
 
-        new_user = User(username=username, is_admin=is_admin, is_professor=is_professor)
-        new_user.set_password(password)
-        db.session.add(new_user)
-        db.session.commit()
-        flash(f'Usuário {username} criado com sucesso!', 'success')
+            if is_professor:
+                if not nome_completo:
+                    raise ValueError("O campo 'Nome Completo' é obrigatório para professores.")
+
+                stmt_prof = professor_table.insert().values(
+                    professor_id=new_professor_id,
+                    nome=nome_completo
+                )
+                conn_academic.execute(stmt_prof)
+
+                atribuicoes = json.loads(atribuicoes_json)
+                for atr in atribuicoes:
+                    stmt_atr = professores_turmas_disciplinas_table.insert().values(
+                        professor_id=new_professor_id,
+                        turma_id=atr['turma_id'],
+                        disciplina_id=atr['disciplina_id'],
+                        ano_letivo=atr['ano_letivo']
+                    )
+                    conn_academic.execute(stmt_atr)
+
+            session_app.commit()
+            trans_academic.commit()
+
+            flash(f'Usuário {username} criado com sucesso!', 'success')
+            return redirect(url_for('main_bp.listar_usuarios'))
+
+        except Exception as e:
+            session_app.rollback()
+            trans_academic.rollback()
+            logger.error(f"Erro ao criar usuário: {e}", exc_info=True)
+            flash(f'Erro ao criar usuário: {e}', 'danger')
+        finally:
+            conn_academic.close()
+
+    return render_template(
+        'main/criar_usuario.html',
+        username=current_user.username,
+        user_role=current_user.role,
+        turmas=turmas,
+        disciplinas=disciplinas
+    )
+
+
+@main_bp.route('/excluir_usuario/<int:user_id>', methods=['POST'])
+@login_required
+def excluir_usuario(user_id):
+    if not current_user.is_admin:
+        flash('Acesso negado. Apenas administradores podem excluir usuários.', 'danger')
         return redirect(url_for('main_bp.listar_usuarios'))
 
-    # Para requisições GET:
-    return render_template('criar_usuario.html', username=username_jwt, is_admin=current_admin_user.is_admin,
-                           user_role="Administrador", csrf_token=csrf_token) # <--- ALTERADA ESTA LINHA
+    user_to_delete = User.query.get_or_404(user_id)
+
+    if user_to_delete.id == current_user.id:
+        flash('Você não pode excluir sua própria conta.', 'danger')
+        return redirect(url_for('main_bp.listar_usuarios'))
+
+    db.session.delete(user_to_delete)
+    db.session.commit()
+    flash(f'Usuário {user_to_delete.username} foi excluído com sucesso.', 'success')
+    return redirect(url_for('main_bp.listar_usuarios'))
+
 
 def process_files_async(folder_path, sid):
     try:
@@ -224,3 +286,10 @@ def process_files_async(folder_path, sid):
         logger.error(f"Erro no processamento assíncrono: {e}", exc_info=True)
         socketio.emit('processing_complete', {'status': 'error', 'message': f'Erro ao processar arquivos: {e}'},
                       room=sid)
+    finally:
+        if os.path.exists(folder_path):
+            try:
+                shutil.rmtree(folder_path)
+                logger.info(f"Pasta de uploads '{folder_path}' removida após processamento.")
+            except OSError as e:
+                logger.error(f"Erro ao remover pasta de uploads '{folder_path}': {e}", exc_info=True)
