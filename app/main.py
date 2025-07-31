@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file, current_app
 from flask_login import login_required, current_user
-from sqlalchemy.sql import select
+from sqlalchemy.sql import select, join, distinct
 from app import db, socketio, logger, turma_table, disciplina_table, professor_table, \
     professores_turmas_disciplinas_table
 from app.models import User
@@ -26,10 +26,32 @@ def allowed_file(filename):
 @main_bp.route('/get_files')
 @login_required
 def get_files():
+    atribuicoes = []
+    # Se o usuário logado for um professor, busca suas atribuições
+    if current_user.is_professor:
+        academic_engine = db.get_engine(bind='academic')
+        with academic_engine.connect() as connection:
+            # Query que junta as 3 tabelas para obter os nomes legíveis
+            j = join(professores_turmas_disciplinas_table, turma_table,
+                     professores_turmas_disciplinas_table.c.turma_id == turma_table.c.turma_id)
+            j = join(j, disciplina_table,
+                     professores_turmas_disciplinas_table.c.disciplina_id == disciplina_table.c.disciplina_id)
+
+            query = select(
+                turma_table.c.turma,
+                turma_table.c.turno,
+                disciplina_table.c.disciplina
+            ).select_from(j).where(
+                professores_turmas_disciplinas_table.c.professor_id == current_user.professor_id
+            ).order_by(turma_table.c.turma, disciplina_table.c.disciplina)
+
+            atribuicoes = connection.execute(query).all()
+
     return render_template(
         'main/index.html',
         username=current_user.username,
-        user_role=current_user.role
+        user_role=current_user.role,
+        atribuicoes=atribuicoes  # Envia a lista de atribuições para o template
     )
 
 @main_bp.route('/processar_arquivos', methods=['POST'])
@@ -164,7 +186,6 @@ def criar_usuario():
         nome_completo = request.form.get('nome_completo')
         atribuicoes_json = request.form.get('atribuicoes', '[]')
 
-        # Adicione aqui suas validações de senha, etc.
 
         session_app = db.session()
         conn_academic = academic_engine.connect()

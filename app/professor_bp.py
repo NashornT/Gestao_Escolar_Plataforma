@@ -5,7 +5,6 @@ from app import db, logger
 from app import turma_table, disciplina_table, aluno_table, nota_table, alunos_turma_table, \
     professores_turmas_disciplinas_table
 from datetime import datetime
-import decimal
 import uuid
 
 professor_bp = Blueprint('professor_bp', __name__, url_prefix='/professor')

@@ -13,7 +13,7 @@
     </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
         <div class="container-fluid">
             <a class="navbar-brand" href="{{ url_for('main_bp.get_files') }}">Gestão Escolar</a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
@@ -24,20 +24,15 @@
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('main_bp.get_files') }}">Início</a>
                     </li>
-                    {% if user_role == 'professor' or user_role == 'admin' %}
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('professor_bp.gerenciar_notas') }}">Gerenciar Notas</a>
-                    </li>
-                    {% endif %}
                     {% if user_role == 'admin' %}
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('main_bp.baixar_dados') }}">Baixar Dados Gerais</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link active" aria-current="page" href="{{ url_for('main_bp.listar_usuarios') }}">Gerenciar Usuários</a>
+                        <a class="nav-link" href="{{ url_for('main_bp.listar_usuarios') }}">Gerenciar Usuários</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('main_bp.criar_usuario') }}">Criar Usuário</a>
+                        <a class="nav-link active" aria-current="page" href="{{ url_for('main_bp.criar_usuario') }}">Criar Usuário</a>
                     </li>
                     {% endif %}
                 </ul>
