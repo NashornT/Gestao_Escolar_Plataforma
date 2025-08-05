@@ -3,7 +3,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
 from flask_socketio import SocketIO
 from methods.logging_config import setup_logging
-from sqlalchemy import Table
+from sqlalchemy import Table, MetaData  # <-- Importe MetaData
 import logging
 
 db = SQLAlchemy()
@@ -11,6 +11,7 @@ login_manager = LoginManager()
 socketio = SocketIO()
 logger = logging.getLogger(__name__)
 
+# As variáveis globais continuam as mesmas
 turma_table = None
 disciplina_table = None
 aluno_table = None
@@ -18,6 +19,9 @@ nota_table = None
 alunos_turma_table = None
 professor_table = None
 professores_turmas_disciplinas_table = None
+anuncio_table = None
+material_aula_table = None
+
 
 def create_app():
     app = Flask(__name__)
@@ -31,21 +35,28 @@ def create_app():
     login_manager.login_message_category = 'info'
     setup_logging()
 
-    # Carrega as tabelas do banco acadêmico
-    global turma_table, disciplina_table, aluno_table, nota_table, alunos_turma_table, professor_table, professores_turmas_disciplinas_table
+    # Carrega as tabelas do banco acadêmico com metadados isolados
+    global turma_table, disciplina_table, aluno_table, nota_table, alunos_turma_table, professor_table, professores_turmas_disciplinas_table, anuncio_table, material_aula_table
     with app.app_context():
         try:
+            logger.info("Tentando refletir as tabelas do banco de dados acadêmico...")
             academic_engine = db.get_engine(bind='academic')
-            turma_table = Table('turmas', db.metadata, autoload_with=academic_engine)
-            disciplina_table = Table('materias', db.metadata, autoload_with=academic_engine)
-            aluno_table = Table('alunos', db.metadata, autoload_with=academic_engine)
-            nota_table = Table('notas', db.metadata, autoload_with=academic_engine)
-            alunos_turma_table = Table('alunos_turma', db.metadata, autoload_with=academic_engine)
-            professor_table = Table('professores', db.metadata, autoload_with=academic_engine) # <-- ADICIONADO
-            professores_turmas_disciplinas_table = Table('professores_turmas_disciplinas', db.metadata, autoload_with=academic_engine) # <-- ADICIONADO
+            academic_metadata = MetaData()
+
+            turma_table = Table('turmas', academic_metadata, autoload_with=academic_engine)
+            disciplina_table = Table('materias', academic_metadata, autoload_with=academic_engine)
+            aluno_table = Table('alunos', academic_metadata, autoload_with=academic_engine)
+            nota_table = Table('notas', academic_metadata, autoload_with=academic_engine)
+            alunos_turma_table = Table('alunos_turma', academic_metadata, autoload_with=academic_engine)
+            professor_table = Table('professores', academic_metadata, autoload_with=academic_engine)
+            professores_turmas_disciplinas_table = Table('professores_turmas_disciplinas', academic_metadata,
+                                                         autoload_with=academic_engine)
+            anuncio_table = Table('anuncios', academic_metadata, autoload_with=academic_engine)
+            material_aula_table = Table('materiais_aula', academic_metadata, autoload_with=academic_engine)
+
             logger.info("Tabelas do banco de dados acadêmico refletidas com sucesso.")
         except Exception as e:
-            logger.error(f"Falha ao refletir as tabelas do banco 'academic': {e}", exc_info=True)
+            logger.error(f"Falha CRÍTICA ao refletir as tabelas do banco 'academic': {e}", exc_info=True)
 
     # Registra os Blueprints
     from app.auth import auth_bp
