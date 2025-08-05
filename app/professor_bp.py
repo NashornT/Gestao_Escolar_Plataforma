@@ -3,9 +3,11 @@ from flask_login import login_required, current_user
 from sqlalchemy.sql import select, update, insert, join, distinct
 from app import db, logger
 from app import turma_table, disciplina_table, aluno_table, nota_table, alunos_turma_table, \
-    professores_turmas_disciplinas_table
+    professores_turmas_disciplinas_table, anuncio_table, material_aula_table
 from datetime import datetime
+from werkzeug.utils import secure_filename
 import uuid
+import os
 
 professor_bp = Blueprint('professor_bp', __name__, url_prefix='/professor')
 
@@ -162,3 +164,130 @@ def api_atualizar_dados():
             trans.rollback()
             logger.error(f"Erro de banco de dados ao atualizar: {e}", exc_info=True)
             return jsonify({'success': False, 'message': f'Ocorreu um erro: {str(e)}'}), 500
+
+
+@professor_bp.route('/anuncios', methods=['GET', 'POST'])
+@login_required
+def gerenciar_anuncios():
+    academic_engine = db.get_engine(bind='academic')
+
+    if request.method == 'POST':
+        titulo = request.form.get('titulo')
+        conteudo = request.form.get('conteudo')
+        professor_id = current_user.professor_id
+
+        if not titulo or not conteudo:
+            flash('Título e conteúdo são obrigatórios.', 'danger')
+        else:
+            with academic_engine.connect() as connection:
+                trans = connection.begin()
+                try:
+                    stmt = insert(anuncio_table).values(
+                        professor_id=professor_id,
+                        titulo=titulo,
+                        conteudo=conteudo,
+                        data_postagem=datetime.now()
+                    )
+                    connection.execute(stmt)
+                    trans.commit()
+                    flash('Anúncio publicado com sucesso!', 'success')
+                    return redirect(url_for('professor_bp.gerenciar_anuncios'))
+                except Exception as e:
+                    trans.rollback()
+                    flash(f'Erro ao publicar anúncio: {e}', 'danger')
+
+    # Para requisições GET, busca os anúncios existentes para exibi-los
+    anuncios_publicados = []
+    with academic_engine.connect() as connection:
+        query = select(anuncio_table).where(anuncio_table.c.professor_id == current_user.professor_id).order_by(
+            anuncio_table.c.data_postagem.desc())
+        anuncios_publicados = connection.execute(query).all()
+
+    return render_template(
+        'professor/anuncios.html',
+        username=current_user.username,
+        user_role=current_user.role,
+        anuncios=anuncios_publicados
+    )
+
+
+@professor_bp.route('/materiais', methods=['GET', 'POST'])
+@login_required
+def gerenciar_materiais():
+    # ===== INÍCIO DA CORREÇÃO =====
+    # Verifica se as tabelas essenciais foram carregadas. Se não, mostra um erro claro.
+    if material_aula_table is None or turma_table is None or disciplina_table is None:
+        flash(
+            'Erro crítico: Uma ou mais tabelas acadêmicas não foram encontradas no banco de dados. Verifique a conexão e os nomes das tabelas.',
+            'danger')
+        return redirect(url_for('main_bp.get_files'))
+    # ===== FIM DA CORREÇÃO =====
+
+    professor_id_logado = current_user.professor_id
+    academic_engine = db.get_engine(bind='academic')
+
+    with academic_engine.connect() as connection:
+        join_turmas = join(turma_table, professores_turmas_disciplinas_table,
+                           turma_table.c.turma_id == professores_turmas_disciplinas_table.c.turma_id)
+        query_turmas = select(
+            distinct(turma_table.c.turma_id),
+            turma_table.c.turma,
+            turma_table.c.turno
+        ).select_from(join_turmas).where(
+            professores_turmas_disciplinas_table.c.professor_id == professor_id_logado
+        ).order_by(turma_table.c.turma, turma_table.c.turno)
+        turmas_atribuidas = connection.execute(query_turmas).all()
+
+    if request.method == 'POST':
+        turma_id = request.form.get('turma_id')
+        disciplina_id = request.form.get('disciplina_id')
+        titulo = request.form.get('titulo')
+        descricao = request.form.get('descricao')
+        arquivo = request.files.get('arquivo')
+
+        if not all([turma_id, disciplina_id, titulo, arquivo]):
+            flash('Todos os campos, incluindo o arquivo, são obrigatórios.', 'danger')
+        else:
+            filename = secure_filename(arquivo.filename)
+            upload_path = os.path.join('uploads', 'materiais')
+            os.makedirs(upload_path, exist_ok=True)
+            arquivo.save(os.path.join(upload_path, filename))
+
+            with academic_engine.connect() as connection:
+                trans = connection.begin()
+                try:
+                    stmt = insert(material_aula_table).values(
+                        professor_id=professor_id_logado,
+                        turma_id=turma_id,
+                        disciplina_id=disciplina_id,
+                        titulo=titulo,
+                        descricao=descricao,
+                        link_arquivo=filename,
+                        data_upload=datetime.now()
+                    )
+                    connection.execute(stmt)
+                    trans.commit()
+                    flash('Material enviado com sucesso!', 'success')
+                    return redirect(url_for('professor_bp.gerenciar_materiais'))
+                except Exception as e:
+                    trans.rollback()
+                    flash(f'Erro ao enviar material: {e}', 'danger')
+
+    materiais_enviados = []
+    with academic_engine.connect() as connection:
+        j = join(material_aula_table, turma_table, material_aula_table.c.turma_id == turma_table.c.turma_id)
+        j = join(j, disciplina_table, material_aula_table.c.disciplina_id == disciplina_table.c.disciplina_id)
+        query_materiais = select(
+            material_aula_table, turma_table.c.turma, disciplina_table.c.disciplina
+        ).select_from(j).where(
+            material_aula_table.c.professor_id == professor_id_logado
+        ).order_by(material_aula_table.c.data_upload.desc())
+        materiais_enviados = connection.execute(query_materiais).all()
+
+    return render_template(
+        'professor/materiais.html',
+        username=current_user.username,
+        user_role=current_user.role,
+        turmas=turmas_atribuidas,
+        materiais=materiais_enviados
+    )
