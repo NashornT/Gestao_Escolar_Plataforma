@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for
+from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for, current_app, send_from_directory
 from flask_login import login_required, current_user
 from sqlalchemy.sql import select, update, insert, join, distinct
 from app import db, logger
@@ -291,3 +291,52 @@ def gerenciar_materiais():
         turmas=turmas_atribuidas,
         materiais=materiais_enviados
     )
+
+
+@professor_bp.route('/materiais/<path:filename>')
+@login_required
+def download_material(filename):
+    """
+    Rota segura para servir os arquivos da pasta de uploads de materiais.
+    """
+    materiais_directory = os.path.join(current_app.root_path, '..', 'uploads', 'materiais')
+    return send_from_directory(directory=materiais_directory, path=filename)
+
+
+@professor_bp.route('/materiais/excluir/<int:material_id>', methods=['POST'])
+@login_required
+def excluir_material(material_id):
+    professor_id_logado = current_user.professor_id
+    academic_engine = db.get_engine(bind='academic')
+
+    with academic_engine.connect() as connection:
+        trans = connection.begin()
+        try:
+            query_material = select(material_aula_table).where(material_aula_table.c.material_id == material_id)
+            material = connection.execute(query_material).first()
+
+            if not material:
+                flash('Material não encontrado.', 'danger')
+                return redirect(url_for('professor_bp.gerenciar_materiais'))
+
+            if material.professor_id != professor_id_logado:
+                flash('Você não tem permissão para excluir este material.', 'danger')
+                return redirect(url_for('professor_bp.gerenciar_materiais'))
+
+            if material.link_arquivo:
+                caminho_arquivo = os.path.join('uploads', 'materiais', material.link_arquivo)
+                if os.path.exists(caminho_arquivo):
+                    os.remove(caminho_arquivo)
+
+            stmt = material_aula_table.delete().where(material_aula_table.c.material_id == material_id)
+            connection.execute(stmt)
+
+            trans.commit()
+            flash('Material removido com sucesso!', 'success')
+
+        except Exception as e:
+            trans.rollback()
+            logger.error(f"Erro ao excluir material: {e}", exc_info=True)
+            flash(f'Erro ao remover material: {e}', 'danger')
+
+    return redirect(url_for('professor_bp.gerenciar_materiais'))

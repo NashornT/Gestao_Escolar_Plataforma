@@ -101,7 +101,7 @@
                 </div>
             </div>
 
-            <div class="col-md-7">
+             <div class="col-md-7">
                 <h4>Meus Materiais Enviados</h4>
                 {% if materiais %}
                     {% for mat in materiais %}
@@ -110,8 +110,16 @@
                             <h5 class="card-title">{{ mat.titulo }}</h5>
                             <h6 class="card-subtitle mb-2 text-muted">{{ mat.turma }} | {{ mat.disciplina }}</h6>
                             <p class="card-text">{{ mat.descricao }}</p>
-                            <a href="{{ url_for('static', filename='materiais/' + mat.link_arquivo) }}" class="card-link" target="_blank">Ver Arquivo</a>
-                            <small class="text-muted float-end">Enviado em: {{ mat.data_upload.strftime('%d/%m/%Y') }}</small>
+
+                            <div class="d-flex justify-content-between align-items-center">
+                                <a href="{{ url_for('professor_bp.download_material', filename=mat.link_arquivo) }}" class="btn btn-sm btn-primary" target="_blank">Ver Arquivo</a>
+
+                                <form action="{{ url_for('professor_bp.excluir_material', material_id=mat.material_id) }}" method="post" onsubmit="return confirm('Tem certeza que deseja remover este material permanentemente?');">
+                                    <button type="submit" class="btn btn-sm btn-danger">Remover</button>
+                                </form>
+                            </div>
+
+                            <small class="text-muted d-block text-end mt-2">Enviado em: {{ mat.data_upload.strftime('%d/%m/%Y') }}</small>
                         </div>
                     </div>
                     {% endfor %}
