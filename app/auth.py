@@ -12,9 +12,12 @@ auth_bp = Blueprint('auth', __name__, template_folder='../templates')
 
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
-    # Evita que um usuário já logado acesse a página de login novamente
     if current_user.is_authenticated:
-        return redirect(url_for('main_bp.get_files'))
+        # Se o usuário já está logado, redireciona para o painel correto
+        if current_user.role == 'student':
+            return redirect(url_for('aluno.painel'))
+        else:  # Admin e Professor
+            return redirect(url_for('main_bp.get_files'))
 
     if request.method == 'POST':
         username = request.form.get('username')
@@ -27,19 +30,17 @@ def login():
             flash('Usuário ou senha inválidos. Por favor, verifique seus dados e tente novamente.', 'danger')
             return redirect(url_for('auth.login'))
 
-        # Registra o login do usuário
         login_user(user, remember=remember)
-
-        # Atualiza o campo last_login
         user.last_login = datetime.utcnow()
         db.session.commit()
 
-        # Redireciona para a página principal após o login
-        return redirect(url_for('main_bp.get_files'))
+        # Após o login, verifica o papel do usuário e o envia para a página certa
+        if user.role == 'student':
+            return redirect(url_for('aluno.painel'))
+        else:  # Admin e Professor vão para o painel principal
+            return redirect(url_for('main_bp.get_files'))
 
-    # Agora o Flask saberá encontrar 'auth/login.html' dentro da pasta 'templates'
     return render_template('auth/login.html')
-
 
 @auth_bp.route('/logout')
 @login_required
