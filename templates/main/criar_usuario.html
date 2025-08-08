@@ -9,6 +9,8 @@
         .card { max-width: 700px; margin: 2rem auto; }
         .card-header { background-color: #3498db; }
         .hidden { display: none; }
+        /* Adiciona um estilo para os botões de rádio para melhor visualização */
+        .form-check-input:checked { background-color: #27ae60; border-color: #27ae60; }
     </style>
 </head>
 <body>
@@ -64,24 +66,44 @@
                 <form id="createUserForm" action="{{ url_for('main_bp.criar_usuario') }}" method="post">
                     <div class="row">
                         <div class="col-md-6 mb-3">
-                            <label for="username" class="form-label">Nome de Usuário</label>
+                            <label for="username" class="form-label">Nome de Usuário (Login)</label>
                             <input type="text" class="form-control" id="username" name="username" required>
                         </div>
                         <div class="col-md-6 mb-3">
-                            <label for="password" class="form-label">Senha</label>
+                            <label for="password" class="form-label">Senha Inicial</label>
                             <input type="password" class="form-control" id="password" name="password" required>
                         </div>
                     </div>
-                    <div class="form-check mb-3">
-                        <input type="checkbox" class="form-check-input" id="is_professor" name="is_professor">
-                        <label class="form-check-label" for="is_professor">É Professor?</label>
+
+                    <h6>Papel do Usuário</h6>
+                    <div class="form-check">
+                        <input type="radio" class="form-check-input" id="is_student" name="role_type" value="student">
+                        <label class="form-check-label" for="is_student">É Aluno</label>
                     </div>
-                     <div class="form-check mb-3">
-                        <input type="checkbox" class="form-check-input" id="is_admin" name="is_admin">
-                        <label class="form-check-label" for="is_admin">É Administrador?</label>
+                    <div class="form-check">
+                        <input type="radio" class="form-check-input" id="is_professor" name="role_type" value="professor">
+                        <label class="form-check-label" for="is_professor">É Professor</label>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input type="radio" class="form-check-input" id="is_admin" name="role_type" value="admin">
+                        <label class="form-check-label" for="is_admin">É Administrador</label>
                     </div>
 
-                    <div id="professorFields" class="hidden">
+                    <div id="studentFields" class="hidden mt-3">
+                        <hr>
+                        <h4>Associar ao Aluno</h4>
+                        <div class="mb-3">
+                            <label for="alunoSelect" class="form-label">Selecione o Aluno da Base de Dados</label>
+                            <select id="alunoSelect" name="aluno_id" class="form-select">
+                                <option value="" selected>Selecione um aluno da lista...</option>
+                                {% for aluno in alunos %}
+                                <option value="{{ aluno.aluno_id }}">{{ aluno.aluno }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="professorFields" class="hidden mt-3">
                         <hr>
                         <h4>Detalhes do Professor</h4>
                         <div class="mb-3">
@@ -115,8 +137,9 @@
                         <h6 class="mt-3">Atribuições a serem salvas:</h6>
                         <ul id="listaAtribuicoes" class="list-group"></ul>
                     </div>
+
                     <input type="hidden" id="atribuicoes" name="atribuicoes" value="[]">
-                    <hr>
+                    <hr class="mt-4">
                     <button type="submit" class="btn btn-success">Criar Usuário</button>
                 </form>
             </div>
@@ -126,48 +149,67 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            const isProfessorCheckbox = document.getElementById('is_professor');
+            // Campos
+            const studentFields = document.getElementById('studentFields');
             const professorFields = document.getElementById('professorFields');
+            const alunoSelect = document.getElementById('alunoSelect');
             const nomeCompletoInput = document.getElementById('nome_completo');
+
             const addAtribuicaoBtn = document.getElementById('addAtribuicao');
             const listaAtribuicoes = document.getElementById('listaAtribuicoes');
             const atribuicoesInput = document.getElementById('atribuicoes');
             let atribuicoes = [];
 
-            isProfessorCheckbox.addEventListener('change', function() {
-                professorFields.classList.toggle('hidden', !this.checked);
-                nomeCompletoInput.required = this.checked;
-            });
+            // Lógica para mostrar/ocultar seções baseada no botão de rádio
+            document.querySelectorAll('input[name="role_type"]').forEach(radio => {
+                radio.addEventListener('change', function() {
+                    studentFields.classList.add('hidden');
+                    professorFields.classList.add('hidden');
+                    alunoSelect.required = false;
+                    if (nomeCompletoInput) nomeCompletoInput.required = false;
 
-            addAtribuicaoBtn.addEventListener('click', function() {
-                const turmaSelect = document.getElementById('turmaSelect');
-                const disciplinaSelect = document.getElementById('disciplinaSelect');
-                const turmaId = turmaSelect.value;
-                const turmaTexto = turmaSelect.options[turmaSelect.selectedIndex].text;
-                const anoLetivo = turmaSelect.options[turmaSelect.selectedIndex].dataset.ano;
-                const disciplinaId = disciplinaSelect.value;
-                const disciplinaTexto = disciplinaSelect.options[disciplinaSelect.selectedIndex].text;
-
-                if (!turmaId || !disciplinaId) {
-                    alert('Por favor, selecione uma turma e uma disciplina.');
-                    return;
-                }
-
-                const li = document.createElement('li');
-                li.className = 'list-group-item';
-                li.textContent = `${turmaTexto} - ${disciplinaTexto} (Ano: ${anoLetivo})`;
-                listaAtribuicoes.appendChild(li);
-
-                atribuicoes.push({
-                    turma_id: turmaId,
-                    disciplina_id: disciplinaId,
-                    ano_letivo: anoLetivo
+                    if (this.value === 'student' && this.checked) {
+                        studentFields.classList.remove('hidden');
+                        alunoSelect.required = true;
+                    } else if (this.value === 'professor' && this.checked) {
+                        professorFields.classList.remove('hidden');
+                        if (nomeCompletoInput) nomeCompletoInput.required = true;
+                    }
                 });
-
-                atribuicoesInput.value = JSON.stringify(atribuicoes);
-                turmaSelect.selectedIndex = 0;
-                disciplinaSelect.selectedIndex = 0;
             });
+
+            // Lógica para adicionar atribuições do professor
+            if (addAtribuicaoBtn) {
+                addAtribuicaoBtn.addEventListener('click', function() {
+                    const turmaSelect = document.getElementById('turmaSelect');
+                    const disciplinaSelect = document.getElementById('disciplinaSelect');
+                    const turmaId = turmaSelect.value;
+                    const turmaTexto = turmaSelect.options[turmaSelect.selectedIndex].text;
+                    const anoLetivo = turmaSelect.options[turmaSelect.selectedIndex].dataset.ano;
+                    const disciplinaId = disciplinaSelect.value;
+                    const disciplinaTexto = disciplinaSelect.options[disciplinaSelect.selectedIndex].text;
+
+                    if (!turmaId || !disciplinaId) {
+                        alert('Por favor, selecione uma turma e uma disciplina.');
+                        return;
+                    }
+
+                    const li = document.createElement('li');
+                    li.className = 'list-group-item bg-secondary text-white';
+                    li.textContent = `${turmaTexto} - ${disciplinaTexto} (Ano: ${anoLetivo})`;
+                    listaAtribuicoes.appendChild(li);
+
+                    atribuicoes.push({
+                        turma_id: turmaId,
+                        disciplina_id: disciplinaId,
+                        ano_letivo: anoLetivo
+                    });
+
+                    atribuicoesInput.value = JSON.stringify(atribuicoes);
+                    turmaSelect.selectedIndex = 0;
+                    disciplinaSelect.selectedIndex = 0;
+                });
+            }
         });
     </script>
 </body>
