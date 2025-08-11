@@ -37,18 +37,22 @@
     </nav>
 
     <div class="container mt-4">
+        {% if turma_info %}
+            <h3 class="text-light mb-3">Sua Turma: <span class="badge bg-info">{{ turma_info.turma }} - {{ turma_info.turno }}</span></h3>
+        {% endif %}
+
         <div class="row">
             <div class="col-md-6">
                 <div class="card bg-dark text-white">
                     <div class="card-header">
                         <h4>Mural de Anúncios</h4>
                     </div>
-                    <div class="card-body">
+                    <div class="card-body" style="max-height: 500px; overflow-y: auto;">
                         {% if anuncios %}
                             {% for anuncio in anuncios %}
                             <div class="alert alert-info">
                                 <h5>{{ anuncio.titulo }}</h5>
-                                <p>{{ anuncio.conteudo }}</p>
+                                <p style="white-space: pre-wrap;">{{ anuncio.conteudo }}</p>
                                 <hr>
                                 <small class="text-muted">Publicado em: {{ anuncio.data_postagem.strftime('%d/%m/%Y') }}</small>
                             </div>
@@ -65,7 +69,7 @@
                     <div class="card-header">
                         <h4>Materiais da Turma</h4>
                     </div>
-                    <div class="card-body">
+                    <div class="card-body" style="max-height: 500px; overflow-y: auto;">
                         {% if materiais %}
                             <ul class="list-group">
                             {% for mat in materiais %}
@@ -74,7 +78,7 @@
                                         <strong>{{ mat.titulo }}</strong>
                                         <small class="d-block text-muted">{{ mat.disciplina }}</small>
                                     </div>
-                                    <a href="{{ url_for('professor_bp.download_material', filename=mat.link_arquivo) }}" class="btn btn-sm btn-primary" target="_blank">Baixar</a>
+                                    <a href="{{ url_for('aluno.download_material', filename=mat.link_arquivo) }}" class="btn btn-sm btn-primary" target="_blank">Baixar</a>
                                 </li>
                             {% endfor %}
                             </ul>

@@ -175,15 +175,12 @@ def criar_usuario():
 
     academic_engine = db.get_engine(bind='academic')
     with academic_engine.connect() as connection:
-        # Busca dados para os dropdowns de Professor
         turmas = connection.execute(select(turma_table).order_by(turma_table.c.turma, turma_table.c.turno)).all()
         disciplinas = connection.execute(select(disciplina_table).order_by(disciplina_table.c.disciplina)).all()
 
-        # Busca todos os IDs de alunos que JÁ estão associados a um usuário
         users_with_aluno_id = db.session.query(User.aluno_id).filter(User.aluno_id.isnot(None)).all()
         assigned_aluno_ids = [item[0] for item in users_with_aluno_id]
 
-        # Busca alunos do banco acadêmico que AINDA NÃO têm uma conta
         query_alunos = select(aluno_table).where(aluno_table.c.aluno_id.notin_(assigned_aluno_ids)).order_by(
             aluno_table.c.aluno)
         alunos_nao_associados = connection.execute(query_alunos).all()
@@ -191,36 +188,34 @@ def criar_usuario():
     if request.method == 'POST':
         username = request.form.get('username', '').strip().lower()
         password = request.form.get('password')
-        is_admin = 'is_admin' in request.form
-        is_professor = 'is_professor' in request.form
-        is_student = 'is_student' in request.form
+        role_type = request.form.get('role_type')  # Pega o valor do radio button ('student', 'professor', 'admin')
 
-        # Dados específicos
+        is_admin = (role_type == 'admin')
+        is_professor = (role_type == 'professor')
+        is_student = (role_type == 'student')
+
         nome_completo_prof = request.form.get('nome_completo')
         atribuicoes_json = request.form.get('atribuicoes', '[]')
         aluno_id_selecionado = request.form.get('aluno_id')
 
-        #TODO VALIDAÇÃO DE SENHA
+
+        # (Validações de senha, etc.)
+        if not all([username, password, role_type]):
+            flash('Nome de usuário, senha e papel são obrigatórios.', 'danger')
+            return redirect(url_for('main_bp.criar_usuario'))
+
+        if is_student and not aluno_id_selecionado:
+            flash('Para o papel de Aluno, é obrigatório selecionar o aluno correspondente.', 'danger')
+            return redirect(url_for('main_bp.criar_usuario'))
 
         session_app = db.session()
         conn_academic = academic_engine.connect()
         trans_academic = conn_academic.begin()
-
         try:
-            # Define o papel do usuário (regra de negócio: um usuário não pode ser aluno e professor/admin ao mesmo tempo)
-            if is_student:
-                user_role = 'student'
-                is_admin = False
-                is_professor = False
-            elif is_professor:
-                user_role = 'professor'
-            elif is_admin:
-                user_role = 'admin'
-            else:
-                user_role = 'student'  # Papel padrão caso nada seja marcado
-
+            user_role = role_type
             new_professor_id = str(uuid.uuid4()) if is_professor else None
 
+            # Cria o usuário
             new_user = User(
                 username=username,
                 is_admin=is_admin,
