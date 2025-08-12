@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, flash, redirect, url_for, current_app, send_from_directory
 from flask_login import login_required, current_user
 from app import db, logger
-from app import anuncio_table, material_aula_table, alunos_turma_table, turma_table, disciplina_table
+from app import anuncio_table, material_aula_table, alunos_turma_table, turma_table, disciplina_table, nota_table
 from sqlalchemy.sql import select, join
 import os
 
@@ -64,3 +64,34 @@ def painel():
 def download_material(filename):
     materiais_directory = os.path.join(current_app.root_path, '..', 'uploads', 'materiais')
     return send_from_directory(directory=materiais_directory, path=filename)
+
+
+@aluno_bp.route('/minhas-notas')
+@login_required
+def minhas_notas():
+    """
+    Busca e exibe o boletim completo do aluno logado.
+    """
+    boletim_aluno = []
+    academic_engine = db.get_engine(bind='academic')
+    aluno_id_logado = current_user.aluno_id
+
+    if aluno_id_logado:
+        with academic_engine.connect() as connection:
+            # Query que junta as tabelas de notas e matérias para obter os nomes
+            j = join(nota_table, disciplina_table, nota_table.c.disciplina_id == disciplina_table.c.disciplina_id)
+
+            query_boletim = select(
+                nota_table,
+                disciplina_table.c.disciplina
+            ).select_from(j).where(
+                nota_table.c.aluno_id == aluno_id_logado
+            ).order_by(disciplina_table.c.disciplina)
+
+            boletim_aluno = connection.execute(query_boletim).all()
+
+    return render_template(
+        'minhas_notas.html',
+        username=current_user.username,
+        boletim=boletim_aluno
+    )
