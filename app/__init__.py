@@ -68,6 +68,12 @@ def create_app():
     from app.professor_bp import professor_bp
     app.register_blueprint(professor_bp)
 
+    from app.aluno_bp import aluno_bp
+    app.register_blueprint(aluno_bp)
+
+    from app.account_bp import account_bp
+    app.register_blueprint(account_bp)
+
     # Configura o user_loader do Flask-Login
     from app.models import User
     @login_manager.user_loader
