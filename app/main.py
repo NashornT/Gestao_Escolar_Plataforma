@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file, current_app
 from flask_login import login_required, current_user
-from sqlalchemy.sql import select, join, distinct
+from sqlalchemy.sql import select, join, distinct, insert, update
 from app import db, socketio, logger, turma_table, disciplina_table, professor_table, \
     professores_turmas_disciplinas_table, aluno_table
 from app.models import User
@@ -284,6 +284,90 @@ def excluir_usuario(user_id):
     db.session.commit()
     flash(f'Usuário {user_to_delete.username} foi excluído com sucesso.', 'success')
     return redirect(url_for('main_bp.listar_usuarios'))
+
+
+@main_bp.route('/editar-usuario/<user_id>', methods=['GET', 'POST'])
+@login_required
+def editar_usuario(user_id):
+    if not current_user.is_admin:
+        flash('Acesso negado.', 'danger')
+        return redirect(url_for('main_bp.get_files'))
+
+    # Busca o usuário a ser editado no banco de login
+    user_a_editar = User.query.get_or_404(user_id)
+
+    # Prepara a conexão com o banco acadêmico
+    academic_engine = db.get_engine(bind='academic')
+
+    # Busca os dados necessários para os formulários
+    with academic_engine.connect() as connection:
+        turmas = connection.execute(select(turma_table).order_by(turma_table.c.turma, turma_table.c.turno)).all()
+        disciplinas = connection.execute(select(disciplina_table).order_by(disciplina_table.c.disciplina)).all()
+
+        # Se for um professor, busca seus dados específicos
+        professor_info = None
+        atribuicoes_atuais = []
+        if user_a_editar.is_professor and user_a_editar.professor_id:
+            query_prof = select(professor_table).where(professor_table.c.professor_id == user_a_editar.professor_id)
+            professor_info = connection.execute(query_prof).first()
+
+            # Busca as atribuições atuais para exibir na tela
+            j = join(professores_turmas_disciplinas_table, turma_table,
+                     professores_turmas_disciplinas_table.c.turma_id == turma_table.c.turma_id)
+            j = join(j, disciplina_table,
+                     professores_turmas_disciplinas_table.c.disciplina_id == disciplina_table.c.disciplina_id)
+            query_atr = select(
+                professores_turmas_disciplinas_table, turma_table.c.turma, turma_table.c.turno,
+                disciplina_table.c.disciplina
+            ).select_from(j).where(
+                professores_turmas_disciplinas_table.c.professor_id == user_a_editar.professor_id
+            )
+            atribuicoes_atuais = connection.execute(query_atr).all()
+
+    if request.method == 'POST':
+        # Lógica para salvar as alterações
+        nome_completo = request.form.get('nome_completo')
+        atribuicoes_json = request.form.get('atribuicoes', '[]')
+
+        conn_academic = academic_engine.connect()
+        trans_academic = conn_academic.begin()
+        try:
+            # Atualiza o nome completo na tabela 'professores'
+            stmt_update_prof = update(professor_table).where(
+                professor_table.c.professor_id == user_a_editar.professor_id
+            ).values(nome=nome_completo)
+            conn_academic.execute(stmt_update_prof)
+
+            # Exclui todas as atribuições antigas para substituí-las pelas novas
+            stmt_delete_atr = professores_turmas_disciplinas_table.delete().where(
+                professores_turmas_disciplinas_table.c.professor_id == user_a_editar.professor_id
+            )
+            conn_academic.execute(stmt_delete_atr)
+
+            # Insere as novas atribuições
+            import json
+            atribuicoes = json.loads(atribuicoes_json)
+            if atribuicoes:
+                conn_academic.execute(insert(professores_turmas_disciplinas_table), atribuicoes)
+
+            trans_academic.commit()
+            flash(f'Dados do professor {user_a_editar.username} atualizados com sucesso!', 'success')
+            return redirect(url_for('main_bp.listar_usuarios'))
+        except Exception as e:
+            trans_academic.rollback()
+            logger.error(f"Erro ao editar usuário: {e}", exc_info=True)
+            flash(f'Erro ao editar usuário: {str(e)}', 'danger')
+        finally:
+            conn_academic.close()
+
+    return render_template(
+        'main/editar_usuario.html',
+        user_a_editar=user_a_editar,
+        professor_info=professor_info,
+        turmas=turmas,
+        disciplinas=disciplinas,
+        atribuicoes_atuais=atribuicoes_atuais
+    )
 
 
 def process_files_async(folder_path, sid):
