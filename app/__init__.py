@@ -21,6 +21,7 @@ professor_table = None
 professores_turmas_disciplinas_table = None
 anuncio_table = None
 material_aula_table = None
+comentario_anuncio_table = None
 
 
 def create_app():
@@ -36,7 +37,8 @@ def create_app():
     setup_logging()
 
     # Carrega as tabelas do banco acadêmico com metadados isolados
-    global turma_table, disciplina_table, aluno_table, nota_table, alunos_turma_table, professor_table, professores_turmas_disciplinas_table, anuncio_table, material_aula_table
+    global turma_table, disciplina_table, aluno_table, nota_table, alunos_turma_table, professor_table,\
+        professores_turmas_disciplinas_table, anuncio_table, material_aula_table, comentario_anuncio_table
     with app.app_context():
         try:
             logger.info("Tentando refletir as tabelas do banco de dados acadêmico...")
@@ -53,6 +55,7 @@ def create_app():
                                                          autoload_with=academic_engine)
             anuncio_table = Table('anuncios', academic_metadata, autoload_with=academic_engine)
             material_aula_table = Table('materiais_aula', academic_metadata, autoload_with=academic_engine)
+            comentario_anuncio_table = Table('comentarios_anuncios', academic_metadata, autoload_with=academic_engine)
 
             logger.info("Tabelas do banco de dados acadêmico refletidas com sucesso.")
         except Exception as e:

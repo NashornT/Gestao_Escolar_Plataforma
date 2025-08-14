@@ -3,7 +3,7 @@ from flask_login import login_required, current_user
 from sqlalchemy.sql import select, update, insert, join, distinct
 from app import db, logger
 from app import turma_table, disciplina_table, aluno_table, nota_table, alunos_turma_table, \
-    professores_turmas_disciplinas_table, anuncio_table, material_aula_table
+    professores_turmas_disciplinas_table, anuncio_table, material_aula_table, comentario_anuncio_table
 from datetime import datetime
 from werkzeug.utils import secure_filename
 import uuid
@@ -196,18 +196,28 @@ def gerenciar_anuncios():
                     trans.rollback()
                     flash(f'Erro ao publicar anúncio: {e}', 'danger')
 
-    # Para requisições GET, busca os anúncios existentes para exibi-los
-    anuncios_publicados = []
+    anuncios_com_comentarios = []
     with academic_engine.connect() as connection:
-        query = select(anuncio_table).where(anuncio_table.c.professor_id == current_user.professor_id).order_by(
-            anuncio_table.c.data_postagem.desc())
-        anuncios_publicados = connection.execute(query).all()
+        # 1. Busca os anúncios do professor
+        query_anuncios = select(anuncio_table).where(
+            anuncio_table.c.professor_id == current_user.professor_id).order_by(anuncio_table.c.data_postagem.desc())
+        anuncios_publicados = connection.execute(query_anuncios).all()
+
+        # 2. Para cada anúncio, busca seus respectivos comentários
+        for anuncio in anuncios_publicados:
+            query_comentarios = select(comentario_anuncio_table).where(
+                comentario_anuncio_table.c.anuncio_id == anuncio.anuncio_id
+            ).order_by(comentario_anuncio_table.c.data_comentario.asc())
+            comentarios = connection.execute(query_comentarios).all()
+
+            # Adiciona o anúncio e seus comentários à lista final
+            anuncios_com_comentarios.append({'anuncio': anuncio, 'comentarios': comentarios})
 
     return render_template(
         'professor/anuncios.html',
         username=current_user.username,
         user_role=current_user.role,
-        anuncios=anuncios_publicados
+        anuncios_data=anuncios_com_comentarios  # Envia a estrutura completa para o template
     )
 
 
@@ -340,3 +350,5 @@ def excluir_material(material_id):
             flash(f'Erro ao remover material: {e}', 'danger')
 
     return redirect(url_for('professor_bp.gerenciar_materiais'))
+
+

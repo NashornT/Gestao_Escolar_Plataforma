@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_required, current_user
 from sqlalchemy.sql import select, join, distinct, insert, update
 from app import db, socketio, logger, turma_table, disciplina_table, professor_table, \
-    professores_turmas_disciplinas_table, aluno_table
+    professores_turmas_disciplinas_table, aluno_table, comentario_anuncio_table
 from app.models import User
 from methods.extract_data import ExtractData
 from methods.create_school_history import school_history
@@ -157,10 +157,21 @@ def listar_usuarios():
         flash('Acesso negado. Apenas administradores podem visualizar os usuários.', 'danger')
         return redirect(url_for('main_bp.get_files'))
 
-    users = User.query.all()
+    page = request.args.get('page', 1, type=int)
+    search_term = request.args.get('busca', '')
+    query = User.query.order_by(User.username)
+
+    if search_term:
+        query = query.filter(User.username.ilike(f'%{search_term}%'))
+
+    pagination = query.paginate(page=page, per_page=10, error_out=False)
+    users = pagination.items
+
     return render_template(
         'main/listar_usuarios.html',
         users=users,
+        pagination=pagination,
+        search_term=search_term, # Envia o termo de busca de volta para o template
         username=current_user.username,
         user_role=current_user.role
     )
@@ -368,6 +379,37 @@ def editar_usuario(user_id):
         disciplinas=disciplinas,
         atribuicoes_atuais=atribuicoes_atuais
     )
+
+
+@main_bp.route('/anuncio/comentar/<int:anuncio_id>', methods=['POST'])
+@login_required
+def comentar_anuncio(anuncio_id):
+    conteudo = request.form.get('conteudo')
+    if not conteudo:
+        flash('O conteúdo do comentário não pode estar vazio.', 'danger')
+        # Tenta redirecionar para a página anterior, com um fallback
+        return redirect(request.referrer or url_for('main_bp.get_files'))
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        trans = connection.begin()
+        try:
+            stmt = insert(comentario_anuncio_table).values(
+                anuncio_id=anuncio_id,
+                user_id=current_user.id,
+                nome_usuario=current_user.username,
+                conteudo=conteudo,
+                data_comentario=datetime.now()
+            )
+            connection.execute(stmt)
+            trans.commit()
+            flash('Comentário adicionado com sucesso!', 'success')
+        except Exception as e:
+            trans.rollback()
+            logger.error(f"Erro ao adicionar comentário: {e}", exc_info=True)
+            flash('Ocorreu um erro ao salvar seu comentário.', 'danger')
+
+    return redirect(request.referrer or url_for('main_bp.get_files'))
 
 
 def process_files_async(folder_path, sid):
