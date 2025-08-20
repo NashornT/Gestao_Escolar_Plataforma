@@ -38,6 +38,15 @@
                     {% endif %}
                 </ul>
                 <ul class="navbar-nav ms-auto">
+                    <li class="nav-item dropdown">
+                        <a class="nav-link" href="#" id="notificationBell" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <span class="position-relative">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" class="bi bi-bell-fill" viewBox="0 0 16 16"><path d="M8 16a2 2 0 0 0 2-2H6a2 2 0 0 0 2 2zm.995-14.901a1 1 0 1 0-1.99 0A5.002 5.002 0 0 0 3 6c0 1.098-.5 6-2 7h14c-1.5-1-2-5.902-2-7 0-2.42-1.72-4.44-4.005-4.901z"/></svg>
+                                <span id="notificationCount" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="display: none;"></span>
+                            </span>
+                        </a>
+                        <ul id="notificationList" class="dropdown-menu dropdown-menu-dark dropdown-menu-end" aria-labelledby="notificationBell"></ul>
+                    </li>
                     <li class="nav-item">
                         <span class="nav-link">Bem-vindo, {{ username }} ({{ user_role }})</span>
                     </li>
@@ -147,6 +156,61 @@
                     });
                     disciplinaSelect.disabled = false;
                 });
+        });
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const socket = io();
+            const notificationBell = document.getElementById('notificationBell');
+            const notificationCount = document.getElementById('notificationCount');
+            const notificationList = document.getElementById('notificationList');
+
+            socket.on('connect', function() {
+                socket.emit('join', { room: `user_{{ current_user.id }}` });
+            });
+
+            function fetchNotifications() {
+                fetch('/notificacoes/buscar')
+                    .then(response => response.json())
+                    .then(data => {
+                        updateNotificationUI(data.count, data.notificacoes);
+                    });
+            }
+
+            function updateNotificationUI(count, notifications) {
+                if (count > 0) {
+                    notificationCount.textContent = count;
+                    notificationCount.style.display = 'block';
+                } else {
+                    notificationCount.style.display = 'none';
+                }
+                notificationList.innerHTML = '';
+                if (notifications && notifications.length > 0) {
+                    notifications.forEach(notif => {
+                        const listItem = `<li><a class="dropdown-item" href="${notif.link}">${notif.mensagem}</a></li>`;
+                        notificationList.innerHTML += listItem;
+                    });
+                } else {
+                    notificationList.innerHTML = '<li><span class="dropdown-item-text">Nenhuma nova notificação</span></li>';
+                }
+            }
+
+            notificationBell.addEventListener('click', function() {
+                if (notificationCount.style.display !== 'none') {
+                    fetch('/notificacoes/marcar-como-lida', { method: 'POST' })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                notificationCount.style.display = 'none';
+                            }
+                        });
+                }
+            });
+
+            socket.on('nova_notificacao', function(data) {
+                fetchNotifications();
+            });
+
+            fetchNotifications();
         });
     </script>
 </body>

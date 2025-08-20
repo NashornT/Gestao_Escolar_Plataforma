@@ -1,8 +1,8 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file, current_app
 from flask_login import login_required, current_user
-from sqlalchemy.sql import select, join, distinct
+from sqlalchemy.sql import select, join, distinct, insert, update
 from app import db, socketio, logger, turma_table, disciplina_table, professor_table, \
-    professores_turmas_disciplinas_table, aluno_table
+    professores_turmas_disciplinas_table, aluno_table, comentario_anuncio_table, anuncio_table, notificacao_table
 from app.models import User
 from methods.extract_data import ExtractData
 from methods.create_school_history import school_history
@@ -157,10 +157,21 @@ def listar_usuarios():
         flash('Acesso negado. Apenas administradores podem visualizar os usuários.', 'danger')
         return redirect(url_for('main_bp.get_files'))
 
-    users = User.query.all()
+    page = request.args.get('page', 1, type=int)
+    search_term = request.args.get('busca', '')
+    query = User.query.order_by(User.username)
+
+    if search_term:
+        query = query.filter(User.username.ilike(f'%{search_term}%'))
+
+    pagination = query.paginate(page=page, per_page=10, error_out=False)
+    users = pagination.items
+
     return render_template(
         'main/listar_usuarios.html',
         users=users,
+        pagination=pagination,
+        search_term=search_term, # Envia o termo de busca de volta para o template
         username=current_user.username,
         user_role=current_user.role
     )
@@ -284,6 +295,156 @@ def excluir_usuario(user_id):
     db.session.commit()
     flash(f'Usuário {user_to_delete.username} foi excluído com sucesso.', 'success')
     return redirect(url_for('main_bp.listar_usuarios'))
+
+
+@main_bp.route('/editar-usuario/<user_id>', methods=['GET', 'POST'])
+@login_required
+def editar_usuario(user_id):
+    if not current_user.is_admin:
+        flash('Acesso negado.', 'danger')
+        return redirect(url_for('main_bp.get_files'))
+
+    # Busca o usuário a ser editado no banco de login
+    user_a_editar = User.query.get_or_404(user_id)
+
+    # Prepara a conexão com o banco acadêmico
+    academic_engine = db.get_engine(bind='academic')
+
+    # Busca os dados necessários para os formulários
+    with academic_engine.connect() as connection:
+        turmas = connection.execute(select(turma_table).order_by(turma_table.c.turma, turma_table.c.turno)).all()
+        disciplinas = connection.execute(select(disciplina_table).order_by(disciplina_table.c.disciplina)).all()
+
+        # Se for um professor, busca seus dados específicos
+        professor_info = None
+        atribuicoes_atuais = []
+        if user_a_editar.is_professor and user_a_editar.professor_id:
+            query_prof = select(professor_table).where(professor_table.c.professor_id == user_a_editar.professor_id)
+            professor_info = connection.execute(query_prof).first()
+
+            # Busca as atribuições atuais para exibir na tela
+            j = join(professores_turmas_disciplinas_table, turma_table,
+                     professores_turmas_disciplinas_table.c.turma_id == turma_table.c.turma_id)
+            j = join(j, disciplina_table,
+                     professores_turmas_disciplinas_table.c.disciplina_id == disciplina_table.c.disciplina_id)
+            query_atr = select(
+                professores_turmas_disciplinas_table, turma_table.c.turma, turma_table.c.turno,
+                disciplina_table.c.disciplina
+            ).select_from(j).where(
+                professores_turmas_disciplinas_table.c.professor_id == user_a_editar.professor_id
+            )
+            atribuicoes_atuais = connection.execute(query_atr).all()
+
+    if request.method == 'POST':
+        # Lógica para salvar as alterações
+        nome_completo = request.form.get('nome_completo')
+        atribuicoes_json = request.form.get('atribuicoes', '[]')
+
+        conn_academic = academic_engine.connect()
+        trans_academic = conn_academic.begin()
+        try:
+            # Atualiza o nome completo na tabela 'professores'
+            stmt_update_prof = update(professor_table).where(
+                professor_table.c.professor_id == user_a_editar.professor_id
+            ).values(nome=nome_completo)
+            conn_academic.execute(stmt_update_prof)
+
+            # Exclui todas as atribuições antigas para substituí-las pelas novas
+            stmt_delete_atr = professores_turmas_disciplinas_table.delete().where(
+                professores_turmas_disciplinas_table.c.professor_id == user_a_editar.professor_id
+            )
+            conn_academic.execute(stmt_delete_atr)
+
+            # Insere as novas atribuições
+            import json
+            atribuicoes = json.loads(atribuicoes_json)
+            if atribuicoes:
+                conn_academic.execute(insert(professores_turmas_disciplinas_table), atribuicoes)
+
+            trans_academic.commit()
+            flash(f'Dados do professor {user_a_editar.username} atualizados com sucesso!', 'success')
+            return redirect(url_for('main_bp.listar_usuarios'))
+        except Exception as e:
+            trans_academic.rollback()
+            logger.error(f"Erro ao editar usuário: {e}", exc_info=True)
+            flash(f'Erro ao editar usuário: {str(e)}', 'danger')
+        finally:
+            conn_academic.close()
+
+    return render_template(
+        'main/editar_usuario.html',
+        user_a_editar=user_a_editar,
+        professor_info=professor_info,
+        turmas=turmas,
+        disciplinas=disciplinas,
+        atribuicoes_atuais=atribuicoes_atuais
+    )
+
+
+@main_bp.route('/anuncio/comentar/<int:anuncio_id>', methods=['POST'])
+@login_required
+def comentar_anuncio(anuncio_id):
+    conteudo = request.form.get('conteudo')
+    if not conteudo:
+        flash('O conteúdo do comentário não pode estar vazio.', 'danger')
+        return redirect(request.referrer or url_for('main_bp.get_files'))
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as conn_academic:
+        trans_academic = conn_academic.begin()
+        try:
+            # 1. Salva o novo comentário no banco acadêmico
+            stmt_comentario = insert(comentario_anuncio_table).values(
+                anuncio_id=anuncio_id,
+                user_id=current_user.id,
+                nome_usuario=current_user.username,
+                conteudo=conteudo,
+                data_comentario=datetime.now()
+            )
+            conn_academic.execute(stmt_comentario)
+            trans_academic.commit()
+
+            # --- LÓGICA DE NOTIFICAÇÃO PARA O PROFESSOR ---
+
+            # 2. Busca o professor que é o autor do anúncio original
+            query_anuncio = select(anuncio_table.c.professor_id).where(anuncio_table.c.anuncio_id == anuncio_id)
+            resultado_anuncio = conn_academic.execute(query_anuncio).first()
+
+            if resultado_anuncio:
+                professor_id_autor = resultado_anuncio.professor_id
+
+                # 3. Encontra o registro de usuário (login) do professor
+                professor_user = User.query.filter_by(professor_id=professor_id_autor).first()
+
+                if professor_user:
+                    # 4. Cria a notificação para o professor
+                    mensagem = f"'{current_user.username}' comentou no seu anúncio."
+                    link = url_for('professor_bp.gerenciar_anuncios')
+
+                    nova_notificacao = {
+                        'user_id_destino': professor_user.id,
+                        'mensagem': mensagem,
+                        'link': link,
+                        'data_criacao': datetime.now()
+                    }
+
+                    # 5. Salva a notificação no banco de auditoria
+                    audit_engine = db.get_engine()
+                    with audit_engine.connect() as conn_audit:
+                        trans_audit = conn_audit.begin()
+                        conn_audit.execute(insert(notificacao_table), [nova_notificacao])
+                        trans_audit.commit()
+
+                    # 6. Emite o sinal em tempo real para o professor
+                    socketio.emit('nova_notificacao', {'count': 1}, room=f'user_{professor_user.id}')
+
+            flash('Comentário adicionado com sucesso!', 'success')
+        except Exception as e:
+            trans_academic.rollback()
+            logger.error(f"Erro ao adicionar comentário: {e}", exc_info=True)
+            flash('Ocorreu um erro ao salvar seu comentário.', 'danger')
+
+    return redirect(request.referrer or url_for('main_bp.get_files'))
 
 
 def process_files_async(folder_path, sid):
