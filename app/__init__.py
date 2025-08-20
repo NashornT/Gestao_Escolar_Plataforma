@@ -1,9 +1,9 @@
-from flask import Flask, flash, redirect, url_for
+from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
 from flask_socketio import SocketIO
 from methods.logging_config import setup_logging
-from sqlalchemy import Table, MetaData  # <-- Importe MetaData
+from sqlalchemy import Table, MetaData
 import logging
 
 db = SQLAlchemy()
@@ -11,7 +11,7 @@ login_manager = LoginManager()
 socketio = SocketIO()
 logger = logging.getLogger(__name__)
 
-# As variáveis globais continuam as mesmas
+# Declaração de todas as variáveis de tabela
 turma_table = None
 disciplina_table = None
 aluno_table = None
@@ -22,6 +22,7 @@ professores_turmas_disciplinas_table = None
 anuncio_table = None
 material_aula_table = None
 comentario_anuncio_table = None
+notificacao_table = None
 
 
 def create_app():
@@ -36,15 +37,21 @@ def create_app():
     login_manager.login_message_category = 'info'
     setup_logging()
 
-    # Carrega as tabelas do banco acadêmico com metadados isolados
-    global turma_table, disciplina_table, aluno_table, nota_table, alunos_turma_table, professor_table,\
-        professores_turmas_disciplinas_table, anuncio_table, material_aula_table, comentario_anuncio_table
+    # CORREÇÃO: Adiciona 'notificacao_table' à lista global
+    global turma_table, disciplina_table, aluno_table, nota_table, alunos_turma_table, professor_table, \
+        professores_turmas_disciplinas_table, anuncio_table, material_aula_table, comentario_anuncio_table, notificacao_table
+
     with app.app_context():
         try:
-            logger.info("Tentando refletir as tabelas do banco de dados acadêmico...")
+            logger.info("Tentando refletir as tabelas dos bancos de dados...")
+
+            # Reflete a tabela do banco de auditoria
+            audit_engine = db.get_engine()
+            notificacao_table = Table('notificacoes', db.metadata, autoload_with=audit_engine)
+
+            # Reflete as tabelas do banco acadêmico
             academic_engine = db.get_engine(bind='academic')
             academic_metadata = MetaData()
-
             turma_table = Table('turmas', academic_metadata, autoload_with=academic_engine)
             disciplina_table = Table('materias', academic_metadata, autoload_with=academic_engine)
             aluno_table = Table('alunos', academic_metadata, autoload_with=academic_engine)
@@ -57,25 +64,23 @@ def create_app():
             material_aula_table = Table('materiais_aula', academic_metadata, autoload_with=academic_engine)
             comentario_anuncio_table = Table('comentarios_anuncios', academic_metadata, autoload_with=academic_engine)
 
-            logger.info("Tabelas do banco de dados acadêmico refletidas com sucesso.")
+            logger.info("Tabelas refletidas com sucesso.")
         except Exception as e:
-            logger.error(f"Falha CRÍTICA ao refletir as tabelas do banco 'academic': {e}", exc_info=True)
+            logger.error(f"Falha CRÍTICA ao refletir as tabelas: {e}", exc_info=True)
 
     # Registra os Blueprints
     from app.auth import auth_bp
     app.register_blueprint(auth_bp)
-
     from app.main import main_bp
     app.register_blueprint(main_bp)
-
     from app.professor_bp import professor_bp
     app.register_blueprint(professor_bp)
-
     from app.aluno_bp import aluno_bp
     app.register_blueprint(aluno_bp)
-
     from app.account_bp import account_bp
     app.register_blueprint(account_bp)
+    from app.notification_bp import notification_bp
+    app.register_blueprint(notification_bp)
 
     # Configura o user_loader do Flask-Login
     from app.models import User

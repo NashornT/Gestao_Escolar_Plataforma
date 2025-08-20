@@ -3,9 +3,10 @@ from flask_login import login_required, current_user
 from sqlalchemy.sql import select, update, insert, join, distinct
 from app import db, logger
 from app import turma_table, disciplina_table, aluno_table, nota_table, alunos_turma_table, \
-    professores_turmas_disciplinas_table, anuncio_table, material_aula_table, comentario_anuncio_table
+    professores_turmas_disciplinas_table, anuncio_table, material_aula_table, comentario_anuncio_table, notificacao_table, socketio
 from datetime import datetime
 from werkzeug.utils import secure_filename
+from app.models import User
 import uuid
 import os
 
@@ -174,52 +175,65 @@ def gerenciar_anuncios():
     if request.method == 'POST':
         titulo = request.form.get('titulo')
         conteudo = request.form.get('conteudo')
-        professor_id = current_user.professor_id
 
         if not titulo or not conteudo:
             flash('Título e conteúdo são obrigatórios.', 'danger')
-        else:
-            with academic_engine.connect() as connection:
-                trans = connection.begin()
-                try:
-                    stmt = insert(anuncio_table).values(
-                        professor_id=professor_id,
-                        titulo=titulo,
-                        conteudo=conteudo,
-                        data_postagem=datetime.now()
-                    )
-                    connection.execute(stmt)
-                    trans.commit()
-                    flash('Anúncio publicado com sucesso!', 'success')
-                    return redirect(url_for('professor_bp.gerenciar_anuncios'))
-                except Exception as e:
-                    trans.rollback()
-                    flash(f'Erro ao publicar anúncio: {e}', 'danger')
+            return redirect(url_for('professor_bp.gerenciar_anuncios'))
+
+        with academic_engine.connect() as conn_academic:
+            trans_academic = conn_academic.begin()
+            try:
+                stmt_anuncio = insert(anuncio_table).values(
+                    professor_id=current_user.professor_id,
+                    titulo=titulo,
+                    conteudo=conteudo,
+                    data_postagem=datetime.now()
+                )
+                conn_academic.execute(stmt_anuncio)
+                trans_academic.commit()
+
+                alunos = User.query.filter_by(role='student').all()
+                if alunos:
+                    mensagem = f"Novo anúncio publicado: '{titulo[:30]}...'"
+                    link = url_for('aluno.painel')
+                    novas_notificacoes = [{'user_id_destino': aluno.id, 'mensagem': mensagem, 'link': link,
+                                           'data_criacao': datetime.now()} for aluno in alunos]
+
+                    audit_engine = db.get_engine()
+                    with audit_engine.connect() as conn_audit:
+                        trans_audit = conn_audit.begin()
+                        conn_audit.execute(insert(notificacao_table), novas_notificacoes)
+                        trans_audit.commit()
+
+                    for aluno in alunos:
+                        socketio.emit('nova_notificacao', {'count': 1}, room=f'user_{aluno.id}')
+
+                flash('Anúncio publicado e alunos notificados!', 'success')
+                return redirect(url_for('professor_bp.gerenciar_anuncios'))
+            except Exception as e:
+                trans_academic.rollback()
+                flash(f'Erro ao publicar anúncio: {e}', 'danger')
+                return redirect(url_for('professor_bp.gerenciar_anuncios'))
 
     anuncios_com_comentarios = []
     with academic_engine.connect() as connection:
-        # 1. Busca os anúncios do professor
         query_anuncios = select(anuncio_table).where(
             anuncio_table.c.professor_id == current_user.professor_id).order_by(anuncio_table.c.data_postagem.desc())
         anuncios_publicados = connection.execute(query_anuncios).all()
 
-        # 2. Para cada anúncio, busca seus respectivos comentários
         for anuncio in anuncios_publicados:
             query_comentarios = select(comentario_anuncio_table).where(
                 comentario_anuncio_table.c.anuncio_id == anuncio.anuncio_id
             ).order_by(comentario_anuncio_table.c.data_comentario.asc())
             comentarios = connection.execute(query_comentarios).all()
-
-            # Adiciona o anúncio e seus comentários à lista final
             anuncios_com_comentarios.append({'anuncio': anuncio, 'comentarios': comentarios})
 
     return render_template(
         'professor/anuncios.html',
         username=current_user.username,
         user_role=current_user.role,
-        anuncios_data=anuncios_com_comentarios  # Envia a estrutura completa para o template
+        anuncios_data=anuncios_com_comentarios
     )
-
 
 @professor_bp.route('/materiais', methods=['GET', 'POST'])
 @login_required
@@ -351,4 +365,36 @@ def excluir_material(material_id):
 
     return redirect(url_for('professor_bp.gerenciar_materiais'))
 
+
+@professor_bp.route('/anuncios/excluir/<int:anuncio_id>', methods=['POST'])
+@login_required
+def excluir_anuncio(anuncio_id):
+    professor_id_logado = current_user.professor_id
+    academic_engine = db.get_engine(bind='academic')
+
+    with academic_engine.connect() as connection:
+        trans = connection.begin()
+        try:
+            query_anuncio = select(anuncio_table).where(
+                anuncio_table.c.anuncio_id == anuncio_id,
+                anuncio_table.c.professor_id == professor_id_logado
+            )
+            anuncio = connection.execute(query_anuncio).first()
+
+            if not anuncio:
+                flash('Anúncio não encontrado ou você não tem permissão para excluí-lo.', 'danger')
+                return redirect(url_for('professor_bp.gerenciar_anuncios'))
+
+            stmt = anuncio_table.delete().where(anuncio_table.c.anuncio_id == anuncio_id)
+            connection.execute(stmt)
+
+            trans.commit()
+            flash('Anúncio removido com sucesso!', 'success')
+
+        except Exception as e:
+            trans.rollback()
+            logger.error(f"Erro ao excluir anúncio: {e}", exc_info=True)
+            flash(f'Erro ao remover anúncio: {e}', 'danger')
+
+    return redirect(url_for('professor_bp.gerenciar_anuncios'))
 
