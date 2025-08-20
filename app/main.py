@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_required, current_user
 from sqlalchemy.sql import select, join, distinct, insert, update
 from app import db, socketio, logger, turma_table, disciplina_table, professor_table, \
-    professores_turmas_disciplinas_table, aluno_table, comentario_anuncio_table
+    professores_turmas_disciplinas_table, aluno_table, comentario_anuncio_table, anuncio_table, notificacao_table
 from app.models import User
 from methods.extract_data import ExtractData
 from methods.create_school_history import school_history
@@ -387,25 +387,60 @@ def comentar_anuncio(anuncio_id):
     conteudo = request.form.get('conteudo')
     if not conteudo:
         flash('O conteúdo do comentário não pode estar vazio.', 'danger')
-        # Tenta redirecionar para a página anterior, com um fallback
         return redirect(request.referrer or url_for('main_bp.get_files'))
 
     academic_engine = db.get_engine(bind='academic')
-    with academic_engine.connect() as connection:
-        trans = connection.begin()
+    with academic_engine.connect() as conn_academic:
+        trans_academic = conn_academic.begin()
         try:
-            stmt = insert(comentario_anuncio_table).values(
+            # 1. Salva o novo comentário no banco acadêmico
+            stmt_comentario = insert(comentario_anuncio_table).values(
                 anuncio_id=anuncio_id,
                 user_id=current_user.id,
                 nome_usuario=current_user.username,
                 conteudo=conteudo,
                 data_comentario=datetime.now()
             )
-            connection.execute(stmt)
-            trans.commit()
+            conn_academic.execute(stmt_comentario)
+            trans_academic.commit()
+
+            # --- LÓGICA DE NOTIFICAÇÃO PARA O PROFESSOR ---
+
+            # 2. Busca o professor que é o autor do anúncio original
+            query_anuncio = select(anuncio_table.c.professor_id).where(anuncio_table.c.anuncio_id == anuncio_id)
+            resultado_anuncio = conn_academic.execute(query_anuncio).first()
+
+            if resultado_anuncio:
+                professor_id_autor = resultado_anuncio.professor_id
+
+                # 3. Encontra o registro de usuário (login) do professor
+                professor_user = User.query.filter_by(professor_id=professor_id_autor).first()
+
+                if professor_user:
+                    # 4. Cria a notificação para o professor
+                    mensagem = f"'{current_user.username}' comentou no seu anúncio."
+                    link = url_for('professor_bp.gerenciar_anuncios')
+
+                    nova_notificacao = {
+                        'user_id_destino': professor_user.id,
+                        'mensagem': mensagem,
+                        'link': link,
+                        'data_criacao': datetime.now()
+                    }
+
+                    # 5. Salva a notificação no banco de auditoria
+                    audit_engine = db.get_engine()
+                    with audit_engine.connect() as conn_audit:
+                        trans_audit = conn_audit.begin()
+                        conn_audit.execute(insert(notificacao_table), [nova_notificacao])
+                        trans_audit.commit()
+
+                    # 6. Emite o sinal em tempo real para o professor
+                    socketio.emit('nova_notificacao', {'count': 1}, room=f'user_{professor_user.id}')
+
             flash('Comentário adicionado com sucesso!', 'success')
         except Exception as e:
-            trans.rollback()
+            trans_academic.rollback()
             logger.error(f"Erro ao adicionar comentário: {e}", exc_info=True)
             flash('Ocorreu um erro ao salvar seu comentário.', 'danger')
 

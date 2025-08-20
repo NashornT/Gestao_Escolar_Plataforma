@@ -44,14 +44,21 @@
                     {% endif %}
                 </ul>
                 <ul class="navbar-nav ms-auto">
+                    <li class="nav-item dropdown">
+                        <a class="nav-link" href="#" id="notificationBell" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <span class="position-relative">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" class="bi bi-bell-fill" viewBox="0 0 16 16"><path d="M8 16a2 2 0 0 0 2-2H6a2 2 0 0 0 2 2zm.995-14.901a1 1 0 1 0-1.99 0A5.002 5.002 0 0 0 3 6c0 1.098-.5 6-2 7h14c-1.5-1-2-5.902-2-7 0-2.42-1.72-4.44-4.005-4.901z"/></svg>
+                                <span id="notificationCount" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="display: none;"></span>
+                            </span>
+                        </a>
+                        <ul id="notificationList" class="dropdown-menu dropdown-menu-dark dropdown-menu-end" aria-labelledby="notificationBell"></ul>
+                    </li>
                     <li class="nav-item">
                         <span class="nav-link">Bem-vindo, {{ username }} ({{ user_role }})</span>
                     </li>
-
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('account.mudar_senha') }}">Mudar Senha</a>
                     </li>
-
                     <li class="nav-item">
                         <a class="nav-link btn btn-danger text-white" href="{{ url_for('auth.logout') }}">Sair</a>
                     </li>
@@ -107,121 +114,175 @@
         </div>
     </div>
 
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    const turmaSelect = document.getElementById('turmaSelect');
-    const disciplinaSelect = document.getElementById('disciplinaSelect');
-    const loader = document.getElementById('loader');
-    const container = document.getElementById('tabela-container');
-    const tableBody = document.getElementById('tabela-body');
-    const salvarBtn = document.getElementById('salvarBtn');
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const turmaSelect = document.getElementById('turmaSelect');
+            const disciplinaSelect = document.getElementById('disciplinaSelect');
+            const loader = document.getElementById('loader');
+            const container = document.getElementById('tabela-container');
+            const tableBody = document.getElementById('tabela-body');
+            const salvarBtn = document.getElementById('salvarBtn');
 
-    turmaSelect.addEventListener('change', function() {
-        const turmaId = this.value;
-        disciplinaSelect.innerHTML = '<option selected disabled value="">Carregando...</option>';
-        disciplinaSelect.disabled = true;
-        container.classList.add('hidden');
-        if (!turmaId) return;
-        fetch(`/professor/api/disciplinas_por_turma?turma_id=${turmaId}`)
-            .then(handleResponse)
-            .then(disciplinas => {
-                disciplinaSelect.innerHTML = '<option selected disabled value="">Selecione uma disciplina...</option>';
-                disciplinas.forEach(d => {
-                    disciplinaSelect.innerHTML += `<option value="${d.disciplina_id}">${d.disciplina}</option>`;
+            turmaSelect.addEventListener('change', function() {
+                const turmaId = this.value;
+                disciplinaSelect.innerHTML = '<option selected disabled value="">Carregando...</option>';
+                disciplinaSelect.disabled = true;
+                container.classList.add('hidden');
+                if (!turmaId) return;
+                fetch(`/professor/api/disciplinas_por_turma?turma_id=${turmaId}`)
+                    .then(handleResponse)
+                    .then(disciplinas => {
+                        disciplinaSelect.innerHTML = '<option selected disabled value="">Selecione uma disciplina...</option>';
+                        disciplinas.forEach(d => {
+                            disciplinaSelect.innerHTML += `<option value="${d.disciplina_id}">${d.disciplina}</option>`;
+                        });
+                        disciplinaSelect.disabled = false;
+                    })
+                    .catch(error => {
+                        showAlert(error.message, 'danger');
+                        disciplinaSelect.innerHTML = '<option selected disabled value="">Erro ao carregar</option>';
+                    });
+            });
+
+            disciplinaSelect.addEventListener('change', fetchAlunos);
+            salvarBtn.addEventListener('click', saveData);
+
+            function fetchAlunos() {
+                const turmaId = turmaSelect.value;
+                const disciplinaId = disciplinaSelect.value;
+                if (!turmaId || !disciplinaId) return;
+                loader.classList.remove('hidden');
+                container.classList.add('hidden');
+                tableBody.innerHTML = '';
+                fetch(`/professor/api/dados_turma?turma_id=${turmaId}&disciplina_id=${disciplinaId}`)
+                    .then(handleResponse)
+                    .then(data => populateTable(data))
+                    .catch(error => showAlert(error.message, 'danger'))
+                    .finally(() => loader.classList.add('hidden'));
+            }
+
+            function formatarValor(valor) {
+                if (valor === null || valor === '' || isNaN(valor)) return '';
+                const numero = parseFloat(valor);
+                return numero % 1 === 0 ? numero.toFixed(0) : numero.toFixed(1);
+            }
+
+            function populateTable(alunos) {
+                if (alunos.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="6" class="text-center p-4">Nenhum aluno encontrado para esta turma.</td></tr>';
+                } else {
+                    alunos.forEach(aluno => {
+                        const dados = aluno.dados_nota;
+                        const row = `
+                            <tr>
+                                <td class="aluno-nome">${aluno.nome}</td>
+                                <td><input type="text" class="form-control form-control-sm editable" value="${formatarValor(dados.bimestres.b1.valor)}" data-nota-id="${dados.nota_id}" data-campo="nota_1_bimestre"></td>
+                                <td><input type="text" class="form-control form-control-sm editable" value="${formatarValor(dados.bimestres.b2.valor)}" data-nota-id="${dados.nota_id}" data-campo="nota_2_bimestre"></td>
+                                <td><input type="text" class="form-control form-control-sm editable" value="${formatarValor(dados.bimestres.b3.valor)}" data-nota-id="${dados.nota_id}" data-campo="nota_3_bimestre"></td>
+                                <td><input type="text" class="form-control form-control-sm editable" value="${formatarValor(dados.bimestres.b4.valor)}" data-nota-id="${dados.nota_id}" data-campo="nota_4_bimestre"></td>
+                                <td><input type="text" class="form-control form-control-sm editable" value="${formatarValor(dados.total_faltas)}" data-nota-id="${dados.nota_id}" data-campo="total_faltas"></td>
+                            </tr>
+                        `;
+                        tableBody.insertAdjacentHTML('beforeend', row);
+                    });
+                }
+                container.classList.remove('hidden');
+            }
+
+            function saveData() {
+                const dadosParaSalvar = [];
+                tableBody.querySelectorAll('input.editable').forEach(input => {
+                    dadosParaSalvar.push({
+                        nota_id: input.dataset.notaId,
+                        campo: input.dataset.campo,
+                        valor: input.value.trim().replace(',', '.')
+                    });
                 });
-                disciplinaSelect.disabled = false;
-            })
-            .catch(error => {
-                showAlert(error.message, 'danger');
-                disciplinaSelect.innerHTML = '<option selected disabled value="">Erro ao carregar</option>';
+
+                salvarBtn.disabled = true;
+                salvarBtn.textContent = 'Salvando...';
+
+                // ===== CORREÇÃO AQUI =====
+                // Adiciona o prefixo /professor na URL
+                fetch('/professor/api/atualizar_dados', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ dados: dadosParaSalvar })
+                })
+                .then(handleResponse)
+                .then(data => showAlert(data.message, 'success'))
+                .catch(error => showAlert(error.message, 'danger'))
+                .finally(() => {
+                    salvarBtn.disabled = false;
+                    salvarBtn.textContent = 'Salvar Alterações';
+                });
+            }
+
+            async function handleResponse(response) {
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.message || 'Ocorreu um erro.');
+                return data;
+            }
+
+            function showAlert(message, type) {
+                const placeholder = document.getElementById('alert-placeholder');
+                placeholder.innerHTML = `<div class="alert alert-${type} alert-dismissible fade show" role="alert">${message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+            }
             });
-    });
+        document.addEventListener('DOMContentLoaded', function() {
+            const socket = io();
+            const notificationBell = document.getElementById('notificationBell');
+            const notificationCount = document.getElementById('notificationCount');
+            const notificationList = document.getElementById('notificationList');
 
-    disciplinaSelect.addEventListener('change', fetchAlunos);
-    salvarBtn.addEventListener('click', saveData);
-
-    function fetchAlunos() {
-        const turmaId = turmaSelect.value;
-        const disciplinaId = disciplinaSelect.value;
-        if (!turmaId || !disciplinaId) return;
-        loader.classList.remove('hidden');
-        container.classList.add('hidden');
-        tableBody.innerHTML = '';
-        fetch(`/professor/api/dados_turma?turma_id=${turmaId}&disciplina_id=${disciplinaId}`)
-            .then(handleResponse)
-            .then(data => populateTable(data))
-            .catch(error => showAlert(error.message, 'danger'))
-            .finally(() => loader.classList.add('hidden'));
-    }
-
-    function formatarValor(valor) {
-        if (valor === null || valor === '' || isNaN(valor)) return '';
-        const numero = parseFloat(valor);
-        return numero % 1 === 0 ? numero.toFixed(0) : numero.toFixed(1);
-    }
-
-    function populateTable(alunos) {
-        if (alunos.length === 0) {
-            tableBody.innerHTML = '<tr><td colspan="6" class="text-center p-4">Nenhum aluno encontrado para esta turma.</td></tr>';
-        } else {
-            alunos.forEach(aluno => {
-                const dados = aluno.dados_nota;
-                const row = `
-                    <tr>
-                        <td class="aluno-nome">${aluno.nome}</td>
-                        <td><input type="text" class="form-control form-control-sm editable" value="${formatarValor(dados.bimestres.b1.valor)}" data-nota-id="${dados.nota_id}" data-campo="nota_1_bimestre"></td>
-                        <td><input type="text" class="form-control form-control-sm editable" value="${formatarValor(dados.bimestres.b2.valor)}" data-nota-id="${dados.nota_id}" data-campo="nota_2_bimestre"></td>
-                        <td><input type="text" class="form-control form-control-sm editable" value="${formatarValor(dados.bimestres.b3.valor)}" data-nota-id="${dados.nota_id}" data-campo="nota_3_bimestre"></td>
-                        <td><input type="text" class="form-control form-control-sm editable" value="${formatarValor(dados.bimestres.b4.valor)}" data-nota-id="${dados.nota_id}" data-campo="nota_4_bimestre"></td>
-                        <td><input type="text" class="form-control form-control-sm editable" value="${formatarValor(dados.total_faltas)}" data-nota-id="${dados.nota_id}" data-campo="total_faltas"></td>
-                    </tr>
-                `;
-                tableBody.insertAdjacentHTML('beforeend', row);
+            socket.on('connect', function() {
+                socket.emit('join', { room: `user_{{ current_user.id }}` });
             });
-        }
-        container.classList.remove('hidden');
-    }
 
-    function saveData() {
-        const dadosParaSalvar = [];
-        tableBody.querySelectorAll('input.editable').forEach(input => {
-            dadosParaSalvar.push({
-                nota_id: input.dataset.notaId,
-                campo: input.dataset.campo,
-                valor: input.value.trim().replace(',', '.')
+            function fetchNotifications() {
+                fetch('/notificacoes/buscar')
+                    .then(response => response.json())
+                    .then(data => {
+                        updateNotificationUI(data.count, data.notificacoes);
+                    });
+            }
+
+            function updateNotificationUI(count, notifications) {
+                if (count > 0) {
+                    notificationCount.textContent = count;
+                    notificationCount.style.display = 'block';
+                } else {
+                    notificationCount.style.display = 'none';
+                }
+                notificationList.innerHTML = '';
+                if (notifications && notifications.length > 0) {
+                    notifications.forEach(notif => {
+                        const listItem = `<li><a class="dropdown-item" href="${notif.link}">${notif.mensagem}</a></li>`;
+                        notificationList.innerHTML += listItem;
+                    });
+                } else {
+                    notificationList.innerHTML = '<li><span class="dropdown-item-text">Nenhuma nova notificação</span></li>';
+                }
+            }
+
+            notificationBell.addEventListener('click', function() {
+                if (notificationCount.style.display !== 'none') {
+                    fetch('/notificacoes/marcar-como-lida', { method: 'POST' })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                notificationCount.style.display = 'none';
+                            }
+                        });
+                }
             });
+
+            socket.on('nova_notificacao', function(data) {
+                fetchNotifications();
+            });
+
+            fetchNotifications();
         });
-
-        salvarBtn.disabled = true;
-        salvarBtn.textContent = 'Salvando...';
-
-        // ===== CORREÇÃO AQUI =====
-        // Adiciona o prefixo /professor na URL
-        fetch('/professor/api/atualizar_dados', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ dados: dadosParaSalvar })
-        })
-        .then(handleResponse)
-        .then(data => showAlert(data.message, 'success'))
-        .catch(error => showAlert(error.message, 'danger'))
-        .finally(() => {
-            salvarBtn.disabled = false;
-            salvarBtn.textContent = 'Salvar Alterações';
-        });
-    }
-
-    async function handleResponse(response) {
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.message || 'Ocorreu um erro.');
-        return data;
-    }
-
-    function showAlert(message, type) {
-        const placeholder = document.getElementById('alert-placeholder');
-        placeholder.innerHTML = `<div class="alert alert-${type} alert-dismissible fade show" role="alert">${message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
-    }
-});
-</script>
+    </script>
 </body>
 </html>
