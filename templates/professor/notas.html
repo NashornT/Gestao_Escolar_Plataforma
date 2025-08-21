@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gerenciar Notas e Faltas</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { background-color: #2c3e50; color: #ecf0f1; }
         .card { border-radius: 0.75rem; }
@@ -14,6 +15,11 @@
         .form-control-sm.editable { background-color: #3b5067; color: white; border: 1px solid #4e6a87; text-align: center; max-width: 80px; }
         .loader { border: 5px solid #f3f3f3; border-radius: 50%; border-top: 5px solid #3498db; width: 40px; height: 40px; animation: spin 1.5s linear infinite; margin: auto; }
         .hidden { display: none; }
+
+        .chart-container {
+            position: relative;
+            height: 350px;
+        }
     </style>
 </head>
 <body>
@@ -69,9 +75,36 @@
 
     <div class="container mt-4">
         <div id="alert-placeholder"></div>
+
+        <div id="graficos-container" class="row mb-4 hidden">
+            <div class="col-lg-7 mb-4">
+                <div class="card bg-dark text-white h-100">
+                    <div class="card-header">
+                        Média da Turma por Bimestre
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="mediaBimestreChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-5 mb-4">
+                <div class="card bg-dark text-white h-100">
+                    <div class="card-header">
+                        Distribuição de Notas Finais
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="distribuicaoNotasChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
         <div class="card bg-dark text-white">
             <div class="card-header">
-                <h2>Gerenciamento de Notas e Faltas</h2>
+                <h2>Lançamento de Notas e Faltas</h2>
             </div>
             <div class="card-body">
                 <div class="row g-3 align-items-end mb-4">
@@ -122,12 +155,17 @@
             const container = document.getElementById('tabela-container');
             const tableBody = document.getElementById('tabela-body');
             const salvarBtn = document.getElementById('salvarBtn');
+            const graficosContainer = document.getElementById('graficos-container');
+
+            let mediaChart = null;
+            let distribuicaoChart = null;
 
             turmaSelect.addEventListener('change', function() {
                 const turmaId = this.value;
                 disciplinaSelect.innerHTML = '<option selected disabled value="">Carregando...</option>';
                 disciplinaSelect.disabled = true;
                 container.classList.add('hidden');
+                graficosContainer.classList.add('hidden');
                 if (!turmaId) return;
                 fetch(`/professor/api/disciplinas_por_turma?turma_id=${turmaId}`)
                     .then(handleResponse)
@@ -144,19 +182,29 @@
                     });
             });
 
-            disciplinaSelect.addEventListener('change', fetchAlunos);
+            disciplinaSelect.addEventListener('change', carregarDadosCompletos);
             salvarBtn.addEventListener('click', saveData);
 
-            function fetchAlunos() {
+            function carregarDadosCompletos() {
                 const turmaId = turmaSelect.value;
                 const disciplinaId = disciplinaSelect.value;
+
                 if (!turmaId || !disciplinaId) return;
+
                 loader.classList.remove('hidden');
                 container.classList.add('hidden');
+                graficosContainer.classList.add('hidden');
                 tableBody.innerHTML = '';
-                fetch(`/professor/api/dados_turma?turma_id=${turmaId}&disciplina_id=${disciplinaId}`)
-                    .then(handleResponse)
-                    .then(data => populateTable(data))
+
+                const alunosPromise = fetch(`/professor/api/dados_turma?turma_id=${turmaId}&disciplina_id=${disciplinaId}`).then(handleResponse);
+                const graficosPromise = fetch(`/professor/api/dados_graficos?turma_id=${turmaId}&disciplina_id=${disciplinaId}`).then(handleResponse);
+
+                Promise.all([alunosPromise, graficosPromise])
+                    .then(([alunosData, graficosData]) => {
+                        populateTable(alunosData);
+                        renderizarGraficos(graficosData);
+                        graficosContainer.classList.remove('hidden');
+                    })
                     .catch(error => showAlert(error.message, 'danger'))
                     .finally(() => loader.classList.add('hidden'));
             }
@@ -189,6 +237,47 @@
                 container.classList.remove('hidden');
             }
 
+            function renderizarGraficos(data) {
+                const ctxMedia = document.getElementById('mediaBimestreChart').getContext('2d');
+                if (mediaChart) mediaChart.destroy();
+                mediaChart = new Chart(ctxMedia, {
+                    type: 'bar',
+                    data: {
+                        labels: ['1º Bimestre', '2º Bimestre', '3º Bimestre', '4º Bimestre'],
+                        datasets: [{
+                            label: 'Média da Turma',
+                            data: data.media_bimestres,
+                            backgroundColor: 'rgba(52, 152, 219, 0.8)',
+                            borderColor: 'rgba(52, 152, 219, 1)',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: { y: { beginAtZero: true, max: 10 } }
+                    }
+                });
+
+                const ctxDistribuicao = document.getElementById('distribuicaoNotasChart').getContext('2d');
+                if (distribuicaoChart) distribuicaoChart.destroy();
+                distribuicaoChart = new Chart(ctxDistribuicao, {
+                    type: 'pie',
+                    data: {
+                        labels: ['Abaixo de 5.0', 'Entre 5.0 e 6.9', 'Entre 7.0 e 8.9', 'Acima de 9.0'],
+                        datasets: [{
+                            label: 'Nº de Alunos',
+                            data: data.distribuicao_notas,
+                            backgroundColor: ['#e74c3c', '#f1c40f', '#2ecc71', '#1abc9c']
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                    }
+                });
+            }
+
             function saveData() {
                 const dadosParaSalvar = [];
                 tableBody.querySelectorAll('input.editable').forEach(input => {
@@ -202,15 +291,16 @@
                 salvarBtn.disabled = true;
                 salvarBtn.textContent = 'Salvando...';
 
-                // ===== CORREÇÃO AQUI =====
-                // Adiciona o prefixo /professor na URL
                 fetch('/professor/api/atualizar_dados', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ dados: dadosParaSalvar })
                 })
                 .then(handleResponse)
-                .then(data => showAlert(data.message, 'success'))
+                .then(data => {
+                    showAlert(data.message, 'success');
+                    carregarDadosCompletos(); // Recarrega os dados para atualizar os gráficos
+                })
                 .catch(error => showAlert(error.message, 'danger'))
                 .finally(() => {
                     salvarBtn.disabled = false;
@@ -228,8 +318,8 @@
                 const placeholder = document.getElementById('alert-placeholder');
                 placeholder.innerHTML = `<div class="alert alert-${type} alert-dismissible fade show" role="alert">${message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
             }
-            });
-        document.addEventListener('DOMContentLoaded', function() {
+
+            // Script de notificações (continua o mesmo)
             const socket = io();
             const notificationBell = document.getElementById('notificationBell');
             const notificationCount = document.getElementById('notificationCount');
