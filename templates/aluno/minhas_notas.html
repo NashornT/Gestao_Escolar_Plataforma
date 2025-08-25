@@ -64,6 +64,16 @@
                 <h2>Meu Boletim</h2>
             </div>
             <div class="card-body">
+               <div class="d-flex justify-content-end mb-3">
+                    <a href="{{ url_for('aluno.exportar_boletim_pdf') }}" class="btn btn-info">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-file-earmark-pdf-fill" viewBox="0 0 16 16">
+                            <path d="M5.523 12.424q.21-.164.455-.164.247 0 .45.164.205.164.317.437h.463v-2.144H6.389v.498h.896v.564h-.896v.618h.896v.512h-.896v.48h-.463q-.112-.273-.317-.437-.2-.164-.45-.164-.247 0-.455.164-.204.164-.204.437 0 .273.204.437.208.164.455.164.247 0 .45-.164.205-.164.317-.437h.463v-1.44h-.463q-.112.273-.317.437Z"/>
+                            <path d="M10.143 12.424q.21-.164.455-.164.247 0 .45.164.205.164.317.437h.463v-2.144H11.39v.498h.896v.564h-.896v.618h.896v.512h-.896v.48h-.463q-.112-.273-.317-.437-.2-.164-.45-.164-.247 0-.455.164-.204.164-.204.437 0 .273.204.437.208.164.455.164.247 0 .45-.164.205-.164.317-.437h.463v-1.44h-.463q-.112.273-.317.437Z"/>
+                            <path d="M2 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2zm6-1a1 1 0 0 0-1 1v.5a.5.5 0 0 0 .5.5h1a.5.5 0 0 0 .5-.5V2a1 1 0 0 0-1-1z"/>
+                        </svg>
+                        Exportar Boletim em PDF
+                    </a>
+                </div>
                 {% if boletim %}
                 <div class="table-responsive">
                     <table class="table table-dark table-striped table-bordered">

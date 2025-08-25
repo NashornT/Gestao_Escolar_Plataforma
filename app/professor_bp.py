@@ -398,3 +398,80 @@ def excluir_anuncio(anuncio_id):
 
     return redirect(url_for('professor_bp.gerenciar_anuncios'))
 
+
+@professor_bp.route('/api/dados_graficos')
+@login_required
+def api_dados_graficos():
+    turma_id = request.args.get('turma_id')
+    disciplina_id = request.args.get('disciplina_id', type=int)
+
+    if not turma_id or not disciplina_id:
+        return jsonify({'error': 'ID da Turma e da Disciplina são obrigatórios'}), 400
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        # 1. Obter notas da turma na disciplina
+        j = join(nota_table, alunos_turma_table, nota_table.c.aluno_id == alunos_turma_table.c.aluno_id)
+        query_notas = select(
+            nota_table.c.nota_1_bimestre_final,
+            nota_table.c.nota_2_bimestre_final,
+            nota_table.c.nota_3_bimestre_final,
+            nota_table.c.nota_4_bimestre_final
+        ).select_from(j).where(
+            alunos_turma_table.c.turma_id == turma_id,
+            nota_table.c.disciplina_id == disciplina_id
+        )
+
+        resultados = connection.execute(query_notas).all()
+
+        if not resultados:
+            return jsonify({
+                'media_bimestres': [0, 0, 0, 0],
+                'distribuicao_notas': [0, 0, 0, 0, 0]
+            })
+
+        # 2. Calcular médias por bimestre
+        soma_b1, count_b1 = 0, 0
+        soma_b2, count_b2 = 0, 0
+        soma_b3, count_b3 = 0, 0
+        soma_b4, count_b4 = 0, 0
+
+        todas_as_medias_finais = []
+
+        for row in resultados:
+            if row.nota_1_bimestre_final is not None:
+                soma_b1 += row.nota_1_bimestre_final
+                count_b1 += 1
+            if row.nota_2_bimestre_final is not None:
+                soma_b2 += row.nota_2_bimestre_final
+                count_b2 += 1
+            if row.nota_3_bimestre_final is not None:
+                soma_b3 += row.nota_3_bimestre_final
+                count_b3 += 1
+            if row.nota_4_bimestre_final is not None:
+                soma_b4 += row.nota_4_bimestre_final
+                count_b4 += 1
+
+        media_b1 = round(soma_b1 / count_b1, 1) if count_b1 > 0 else 0
+        media_b2 = round(soma_b2 / count_b2, 1) if count_b2 > 0 else 0
+        media_b3 = round(soma_b3 / count_b3, 1) if count_b3 > 0 else 0
+        media_b4 = round(soma_b4 / count_b4, 1) if count_b4 > 0 else 0
+
+        # 3. Calcular distribuição de notas (média final)
+        query_medias_finais = select(nota_table.c.media_final).select_from(j).where(
+            alunos_turma_table.c.turma_id == turma_id,
+            nota_table.c.disciplina_id == disciplina_id,
+            nota_table.c.media_final.isnot(None)
+        )
+        medias_finais = connection.execute(query_medias_finais).scalars().all()
+
+        abaixo_de_5 = sum(1 for nota in medias_finais if nota < 5)
+        entre_5_e_6_9 = sum(1 for nota in medias_finais if 5 <= nota <= 6.9)
+        entre_7_e_8_9 = sum(1 for nota in medias_finais if 7 <= nota <= 8.9)
+        acima_de_9 = sum(1 for nota in medias_finais if nota >= 9)
+
+    return jsonify({
+        'media_bimestres': [media_b1, media_b2, media_b3, media_b4],
+        'distribuicao_notas': [abaixo_de_5, entre_5_e_6_9, entre_7_e_8_9, acima_de_9]
+    })
+

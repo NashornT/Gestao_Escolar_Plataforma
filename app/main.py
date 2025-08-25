@@ -1,8 +1,9 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file, current_app
+from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file, current_app, jsonify
 from flask_login import login_required, current_user
-from sqlalchemy.sql import select, join, distinct, insert, update
-from app import db, socketio, logger, turma_table, disciplina_table, professor_table, \
-    professores_turmas_disciplinas_table, aluno_table, comentario_anuncio_table, anuncio_table, notificacao_table
+from sqlalchemy.sql import select, join, distinct, insert, update, func, desc
+from app import (db, socketio, logger, turma_table, disciplina_table, professor_table, \
+    professores_turmas_disciplinas_table, aluno_table, comentario_anuncio_table, anuncio_table, notificacao_table,
+                 nota_table, alunos_turma_table)
 from app.models import User
 from methods.extract_data import ExtractData
 from methods.create_school_history import school_history
@@ -445,6 +446,65 @@ def comentar_anuncio(anuncio_id):
             flash('Ocorreu um erro ao salvar seu comentário.', 'danger')
 
     return redirect(request.referrer or url_for('main_bp.get_files'))
+
+
+@main_bp.route('/relatorios')
+@login_required
+def relatorios():
+    if not current_user.is_admin:
+        flash('Acesso negado. Apenas administradores podem ver os relatórios.', 'danger')
+        return redirect(url_for('main_bp.get_files'))
+
+    return render_template(
+        'main/relatorios.html',
+        username=current_user.username,
+        user_role=current_user.role
+    )
+
+
+@main_bp.route('/api/relatorio_desempenho')
+@login_required
+def api_relatorio_desempenho():
+    if not current_user.is_admin:
+        return jsonify({'error': 'Acesso negado'}), 403
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        # Relatório 1: Média geral por disciplina
+        query_media = select(
+            disciplina_table.c.disciplina,
+            func.avg(nota_table.c.media_final).label('media_geral')
+        ).select_from(
+            join(nota_table, disciplina_table, nota_table.c.disciplina_id == disciplina_table.c.disciplina_id)
+        ).group_by(disciplina_table.c.disciplina).order_by(desc('media_geral'))
+
+        medias_result = connection.execute(query_media).mappings().all()
+        media_por_disciplina = [{'disciplina': row['disciplina'], 'media_geral': round(row['media_geral'], 2)} for row
+                                in medias_result]
+
+        # Relatório 2: Alunos em risco (média geral abaixo de 6.0)
+        subquery = select(
+            nota_table.c.aluno_id,
+            func.avg(nota_table.c.media_final).label('media_final_geral')
+        ).group_by(nota_table.c.aluno_id).having(func.avg(nota_table.c.media_final) < 6.0).alias('medias_alunos')
+
+        query_risco = select(
+            aluno_table.c.aluno,
+            turma_table.c.turma,
+            subquery.c.media_final_geral
+        ).select_from(
+            join(subquery, aluno_table, subquery.c.aluno_id == aluno_table.c.aluno_id)
+            .join(alunos_turma_table, aluno_table.c.aluno_id == alunos_turma_table.c.aluno_id)
+            .join(turma_table, alunos_turma_table.c.turma_id == turma_table.c.turma_id)
+        ).order_by(subquery.c.media_final_geral)
+
+        risco_result = connection.execute(query_risco).mappings().all()
+        alunos_em_risco = [dict(row) for row in risco_result]
+
+    return jsonify({
+        'media_por_disciplina': media_por_disciplina,
+        'alunos_em_risco': alunos_em_risco
+    })
 
 
 def process_files_async(folder_path, sid):
