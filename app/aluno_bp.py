@@ -1,10 +1,13 @@
-from flask import Blueprint, render_template, flash, redirect, url_for, current_app, send_from_directory
+from flask import Blueprint, render_template, flash, redirect, url_for, current_app, send_from_directory, send_file
 from flask_login import login_required, current_user
 from app import db, logger
 from app import (anuncio_table, material_aula_table, alunos_turma_table, turma_table, disciplina_table, nota_table,
                  comentario_anuncio_table)
 from sqlalchemy.sql import select, join
+from io import BytesIO
+from fpdf import FPDF
 import os
+
 
 aluno_bp = Blueprint('aluno', __name__, url_prefix='/aluno', template_folder='../templates/aluno')
 
@@ -26,7 +29,7 @@ def painel():
 
     with academic_engine.connect() as connection:
 
-        # 1. Busca todos os anúncios e seus comentários de uma vez usando LEFT JOIN
+        # Busca todos os anúncios e seus comentários de uma vez usando LEFT JOIN
         j = anuncio_table.outerjoin(
             comentario_anuncio_table,
             anuncio_table.c.anuncio_id == comentario_anuncio_table.c.anuncio_id
@@ -42,7 +45,7 @@ def painel():
 
         resultados = connection.execute(query).mappings().all()
 
-        # 2. Organiza os resultados em uma estrutura aninhada (anúncios com seus comentários)
+        # Organiza os resultados em uma estrutura aninhada (anúncios com seus comentários)
         anuncios_dict = {}
         for row in resultados:
             anuncio_id = row['anuncio_id']
@@ -135,4 +138,102 @@ def minhas_notas():
         'minhas_notas.html',
         username=current_user.username,
         boletim=boletim_aluno
+    )
+
+class PDF(FPDF):
+    def header(self):
+        # Define o logo ou título do cabeçalho
+        self.set_font('Arial', 'B', 15)
+        self.cell(0, 10, 'Boletim de Desempenho Escolar', 0, 1, 'C')
+        self.ln(10)
+
+    def footer(self):
+        # Define o rodapé
+        self.set_y(-15)
+        self.set_font('Arial', 'I', 8)
+        self.cell(0, 10, f'Página {self.page_no()}', 0, 0, 'C')
+
+    def print_student_info(self, student_name, turma_info):
+        self.set_font('Arial', 'B', 12)
+        self.cell(0, 10, f'Aluno: {student_name}', 0, 1, 'L')
+        if turma_info:
+            self.cell(0, 10, f"Turma: {turma_info.turma} - {turma_info.turno}", 0, 1, 'L')
+        self.ln(5)
+
+    def create_grades_table(self, data):
+        self.set_font('Arial', 'B', 10)
+        col_widths = {'disciplina': 70, 'b1': 20, 'b2': 20, 'b3': 20, 'b4': 20, 'media': 20, 'faltas': 20}
+
+        # Cabeçalho da Tabela
+        self.cell(col_widths['disciplina'], 7, 'Disciplina', 1, 0, 'C')
+        self.cell(col_widths['b1'], 7, '1º Bim', 1, 0, 'C')
+        self.cell(col_widths['b2'], 7, '2º Bim', 1, 0, 'C')
+        self.cell(col_widths['b3'], 7, '3º Bim', 1, 0, 'C')
+        self.cell(col_widths['b4'], 7, '4º Bim', 1, 0, 'C')
+        self.cell(col_widths['media'], 7, 'Média', 1, 0, 'C')
+        self.cell(col_widths['faltas'], 7, 'Faltas', 1, 1, 'C')
+
+        # Corpo da Tabela
+        self.set_font('Arial', '', 10)
+        for row in data:
+            self.cell(col_widths['disciplina'], 6, str(row['disciplina']), 1)
+            self.cell(col_widths['b1'], 6, str(row['nota_1']), 1, 0, 'C')
+            self.cell(col_widths['b2'], 6, str(row['nota_2']), 1, 0, 'C')
+            self.cell(col_widths['b3'], 6, str(row['nota_3']), 1, 0, 'C')
+            self.cell(col_widths['b4'], 6, str(row['nota_4']), 1, 0, 'C')
+            self.cell(col_widths['media'], 6, str(row['media_final']), 1, 0, 'C')
+            self.cell(col_widths['faltas'], 6, str(row['total_faltas']), 1, 1, 'C')
+
+
+@aluno_bp.route('/exportar-boletim-pdf')
+@login_required
+def exportar_boletim_pdf():
+    academic_engine = db.get_engine(bind='academic')
+    aluno_id_logado = current_user.aluno_id
+
+    with academic_engine.connect() as connection:
+        # Busca as notas e nome da disciplina
+        j_notas = join(nota_table, disciplina_table, nota_table.c.disciplina_id == disciplina_table.c.disciplina_id)
+        query_boletim = select(
+            nota_table, disciplina_table.c.disciplina
+        ).select_from(j_notas).where(
+            nota_table.c.aluno_id == aluno_id_logado
+        ).order_by(disciplina_table.c.disciplina)
+        boletim_aluno = connection.execute(query_boletim).mappings().all()
+
+        # Busca informações da turma do aluno
+        j_turma = join(alunos_turma_table, turma_table, alunos_turma_table.c.turma_id == turma_table.c.turma_id)
+        query_turma = select(turma_table).select_from(j_turma).where(alunos_turma_table.c.aluno_id == aluno_id_logado)
+        turma_info = connection.execute(query_turma).first()
+
+    if not boletim_aluno:
+        flash('Não há notas para gerar o boletim.', 'warning')
+        return redirect(url_for('aluno.minhas_notas'))
+
+    pdf = PDF()
+    pdf.add_page()
+    pdf.print_student_info(current_user.username, turma_info)
+
+    dados_tabela = []
+    for nota in boletim_aluno:
+        dados_tabela.append({
+            'disciplina': nota.disciplina,
+            'nota_1': round(nota.nota_1_bimestre_final, 1) if nota.nota_1_bimestre_final is not None else '-',
+            'nota_2': round(nota.nota_2_bimestre_final, 1) if nota.nota_2_bimestre_final is not None else '-',
+            'nota_3': round(nota.nota_3_bimestre_final, 1) if nota.nota_3_bimestre_final is not None else '-',
+            'nota_4': round(nota.nota_4_bimestre_final, 1) if nota.nota_4_bimestre_final is not None else '-',
+            'media_final': round(nota.media_final, 1) if nota.media_final is not None else '-',
+            'total_faltas': int(nota.total_faltas) if nota.total_faltas is not None else '-'
+        })
+
+    pdf.create_grades_table(dados_tabela)
+
+    pdf_output = pdf.output(dest='S')
+    buffer = BytesIO(pdf_output)
+
+    return send_file(
+        buffer,
+        as_attachment=True,
+        download_name=f'boletim_{current_user.username}.pdf',
+        mimetype='application/pdf'
     )
