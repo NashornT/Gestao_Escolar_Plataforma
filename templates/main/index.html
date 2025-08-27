@@ -28,6 +28,9 @@
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('professor_bp.gerenciar_notas') }}">Gerenciar Notas</a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('professor_bp.lancar_nota_individual_page') }}">Lançamento Individual</a>
+                    </li>
                     {% endif %}
                     {% if user_role == 'admin' %}
                     <li class="nav-item">
