@@ -661,3 +661,27 @@ def salvar_nota_individual():
     # Redireciona de volta para a página, mantendo o filtro da turma selecionado
     return redirect(url_for('professor_bp.lancar_nota_individual_page', turma_id=turma_id))
 
+
+
+@professor_bp.route('/api/historico_aluno_disciplina')
+@login_required
+def api_historico_aluno_disciplina():
+    aluno_id = request.args.get('aluno_id')
+    disciplina_id = request.args.get('disciplina_id')
+    if not aluno_id or not disciplina_id:
+        return jsonify({'error': 'IDs do Aluno e da Disciplina são obrigatórios'}), 400
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        # A query busca o registro de nota completo
+        query_historico = select(nota_table).where(
+            nota_table.c.aluno_id == aluno_id,
+            nota_table.c.disciplina_id == disciplina_id
+        )
+        historico = connection.execute(query_historico).mappings().first()
+
+        if not historico:
+            return jsonify({'error': 'Histórico não encontrado para este aluno nesta disciplina.'}), 404
+
+        return jsonify(dict(historico))
+
