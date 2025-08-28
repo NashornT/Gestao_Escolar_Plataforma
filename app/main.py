@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file, current_app, jsonify
 from flask_login import login_required, current_user
-from sqlalchemy.sql import select, join, distinct, insert, update, func, desc
+from sqlalchemy.sql import select, join, distinct, insert, update, func, desc, delete
 from app import (db, socketio, logger, turma_table, disciplina_table, professor_table, \
     professores_turmas_disciplinas_table, aluno_table, comentario_anuncio_table, anuncio_table, notificacao_table,
                  nota_table, alunos_turma_table)
@@ -14,6 +14,7 @@ import shutil
 import time
 import json
 import uuid
+from methods.generate_uuid import generate_uuid
 
 main_bp = Blueprint('main_bp', __name__, template_folder='../templates/main')
 
@@ -533,3 +534,178 @@ def process_files_async(folder_path, sid):
                 logger.info(f"Pasta de uploads '{folder_path}' removida após processamento.")
             except OSError as e:
                 logger.error(f"Erro ao remover pasta de uploads '{folder_path}': {e}", exc_info=True)
+
+
+
+@main_bp.route('/gerenciar-matriculas')
+@login_required
+def gerenciar_matriculas():
+    if not current_user.is_admin:
+        flash('Acesso negado. Apenas administradores podem gerenciar matrículas.', 'danger')
+        return redirect(url_for('main_bp.get_files'))
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        turmas = connection.execute(
+            select(turma_table).order_by(turma_table.c.turma, turma_table.c.turno)).all()
+
+    return render_template(
+        'main/gerenciar_matriculas.html',
+        username=current_user.username,
+        user_role=current_user.role,
+        turmas=turmas
+    )
+
+
+@main_bp.route('/api/alunos_por_turma_status')
+@login_required
+def api_alunos_por_turma_status():
+    if not current_user.is_admin:
+        return jsonify({'error': 'Acesso negado'}), 403
+
+    turma_id = request.args.get('turma_id')
+    if not turma_id:
+        return jsonify({'error': 'ID da Turma é obrigatório'}), 400
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        # Alunos já matriculados na turma
+        query_matriculados = select(
+            aluno_table.c.aluno_id,
+            aluno_table.c.aluno
+        ).join(
+            alunos_turma_table, aluno_table.c.aluno_id == alunos_turma_table.c.aluno_id
+        ).where(alunos_turma_table.c.turma_id == turma_id).order_by(aluno_table.c.aluno)
+        matriculados = connection.execute(query_matriculados).mappings().all()
+
+        # Alunos ainda não matriculados em nenhuma turma
+        query_matriculados_ids = select(alunos_turma_table.c.aluno_id)
+        matriculados_ids = [row.aluno_id for row in connection.execute(query_matriculados_ids).all()]
+
+        query_disponiveis = select(
+            aluno_table.c.aluno_id,
+            aluno_table.c.aluno
+        ).where(aluno_table.c.aluno_id.notin_(matriculados_ids)).order_by(aluno_table.c.aluno)
+        disponiveis = connection.execute(query_disponiveis).mappings().all()
+
+    return jsonify({
+        'matriculados': [dict(row) for row in matriculados],
+        'disponiveis': [dict(row) for row in disponiveis]
+    })
+
+
+@main_bp.route('/api/atualizar_matricula', methods=['POST'])
+@login_required
+def api_atualizar_matricula():
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'message': 'Acesso negado.'}), 403
+
+    data = request.get_json()
+    turma_id = data.get('turma_id')
+    aluno_id = data.get('aluno_id')
+    acao = data.get('acao') # 'matricular' ou 'desmatricular'
+
+    if not all([turma_id, aluno_id, acao]):
+        return jsonify({'success': False, 'message': 'Dados incompletos.'}), 400
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        trans = connection.begin()
+        try:
+            if acao == 'matricular':
+                stmt_insert = insert(alunos_turma_table).values(aluno_id=aluno_id, turma_id=turma_id)
+                connection.execute(stmt_insert)
+                message = 'Aluno matriculado com sucesso!'
+            elif acao == 'desmatricular':
+                stmt_delete = alunos_turma_table.delete().where(
+                    alunos_turma_table.c.aluno_id == aluno_id,
+                    alunos_turma_table.c.turma_id == turma_id
+                )
+                connection.execute(stmt_delete)
+                message = 'Aluno removido da turma com sucesso!'
+            else:
+                raise ValueError("Ação inválida.")
+
+            trans.commit()
+            return jsonify({'success': True, 'message': message})
+        except Exception as e:
+            trans.rollback()
+            logger.error(f"Erro ao atualizar matrícula: {e}", exc_info=True)
+            return jsonify({'success': False, 'message': f'Erro no servidor: {e}'}), 500
+
+
+@main_bp.route('/api/criar_aluno', methods=['POST'])
+@login_required
+def api_criar_aluno():
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'message': 'Acesso negado.'}), 403
+
+    data = request.get_json()
+    turma_id = data.get('turma_id')
+    aluno_nome = data.get('aluno_nome', '').strip()
+
+    if not all([turma_id, aluno_nome]):
+        return jsonify({'success': False, 'message': 'O nome do aluno e a turma são obrigatórios.'}), 400
+
+    academic_engine = db.get_engine(bind='academic')
+    try:
+        with academic_engine.connect() as connection:
+            with connection.begin():  # Inicia a transação aqui
+                # Verifica se já existe um aluno com o mesmo nome para evitar duplicatas
+                aluno_existente = connection.execute(
+                    select(aluno_table).where(aluno_table.c.aluno == aluno_nome)
+                ).first()
+                if aluno_existente:
+                    # Usamos um código de status 409 Conflict para indicar a duplicata
+                    return jsonify({'success': False, 'message': f'Aluno "{aluno_nome}" já existe.'}), 409
+
+                # 1. Cria o novo aluno na tabela 'alunos'
+                novo_aluno_id = generate_uuid(aluno_nome)
+                stmt_aluno = insert(aluno_table).values(
+                    aluno_id=novo_aluno_id,
+                    aluno=aluno_nome,
+                    status='Ativo'
+                )
+                connection.execute(stmt_aluno)
+
+                # 2. Matricula o novo aluno na turma selecionada
+                stmt_matricula = insert(alunos_turma_table).values(
+                    aluno_id=novo_aluno_id,
+                    turma_id=turma_id
+                )
+                connection.execute(stmt_matricula)
+
+        return jsonify({'success': True, 'message': f'Aluno "{aluno_nome}" criado e matriculado com sucesso!'})
+
+    except Exception as e:
+        logger.error(f"Erro ao criar novo aluno: {e}", exc_info=True)
+        return jsonify({'success': False, 'message': f'Erro no servidor ao criar aluno: {e}'}), 500
+
+    @main_bp.route('/api/limpar_turma', methods=['POST'])
+    @login_required
+    def api_limpar_turma():
+        if not current_user.is_admin:
+            return jsonify({'success': False, 'message': 'Acesso negado.'}), 403
+
+        data = request.get_json()
+        turma_id = data.get('turma_id')
+
+        if not turma_id:
+            return jsonify({'success': False, 'message': 'ID da Turma é obrigatório.'}), 400
+
+        academic_engine = db.get_engine(bind='academic')
+        try:
+            with academic_engine.connect() as connection:
+                with connection.begin():  # Gerenciamento automático de transação
+                    stmt = delete(alunos_turma_table).where(
+                        alunos_turma_table.c.turma_id == turma_id
+                    )
+                    result = connection.execute(stmt)
+
+                    # O rowcount informa quantos registros foram afetados (excluídos)
+                    message = f'{result.rowcount} alunos foram removidos da turma com sucesso!'
+                    return jsonify({'success': True, 'message': message})
+
+        except Exception as e:
+            logger.error(f"Erro ao limpar a turma: {e}", exc_info=True)
+            return jsonify({'success': False, 'message': f'Erro no servidor ao limpar a turma: {e}'}), 500

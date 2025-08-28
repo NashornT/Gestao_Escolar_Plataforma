@@ -34,6 +34,9 @@
                     <li class="nav-item">
                         <a class="nav-link active" aria-current="page" href="{{ url_for('main_bp.relatorios') }}">Relatórios</a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'main_bp.gerenciar_matriculas' %}active{% endif %}" href="{{ url_for('main_bp.gerenciar_matriculas') }}">Matrículas</a>
+                    </li>
                 </ul>
                 <ul class="navbar-nav ms-auto">
                     <li class="nav-item dropdown">
