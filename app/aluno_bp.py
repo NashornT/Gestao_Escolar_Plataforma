@@ -1,4 +1,5 @@
-from flask import Blueprint, render_template, flash, redirect, url_for, current_app, send_from_directory, send_file
+from flask import Blueprint, render_template, flash, redirect, url_for, current_app, send_from_directory, send_file, \
+    jsonify
 from flask_login import login_required, current_user
 from app import db, logger
 from app import (anuncio_table, material_aula_table, alunos_turma_table, turma_table, disciplina_table, nota_table,
@@ -237,3 +238,33 @@ def exportar_boletim_pdf():
         download_name=f'boletim_{current_user.username}.pdf',
         mimetype='application/pdf'
     )
+
+
+@aluno_bp.route('/api/desempenho_pessoal')
+@login_required
+def api_desempenho_pessoal():
+    """
+    Retorna os dados de desempenho do aluno logado para o gráfico.
+    """
+    aluno_id_logado = current_user.aluno_id
+    if not aluno_id_logado:
+        return jsonify({'error': 'ID do aluno não encontrado.'}), 404
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        j = join(nota_table, disciplina_table, nota_table.c.disciplina_id == disciplina_table.c.disciplina_id)
+        query_desempenho = select(
+            disciplina_table.c.disciplina,
+            nota_table.c.media_final
+        ).select_from(j).where(
+            nota_table.c.aluno_id == aluno_id_logado,
+            nota_table.c.media_final.isnot(None)
+        ).order_by(disciplina_table.c.disciplina)
+
+        resultados = connection.execute(query_desempenho).mappings().all()
+
+        # Prepara os dados para o gráfico
+        labels = [row['disciplina'] for row in resultados]
+        data = [round(row['media_final'], 1) for row in resultados]
+
+    return jsonify({'labels': labels, 'data': data})
