@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file, current_app, jsonify
 from flask_login import login_required, current_user
-from sqlalchemy.sql import select, join, distinct, insert, update, func, desc, delete
+from sqlalchemy.sql import select, join, distinct, insert, update, func, desc, delete, text
 from app import (db, socketio, logger, turma_table, disciplina_table, professor_table, \
     professores_turmas_disciplinas_table, aluno_table, comentario_anuncio_table, anuncio_table, notificacao_table,
                  nota_table, alunos_turma_table)
@@ -9,6 +9,7 @@ from methods.extract_data import ExtractData
 from methods.create_school_history import school_history
 from methods.download_data import download_school_data
 from datetime import datetime
+from app.audit_log import log_action
 import os
 import shutil
 import time
@@ -203,6 +204,11 @@ def criar_usuario():
         password = request.form.get('password')
         role_type = request.form.get('role_type')  # Pega o valor do radio button ('student', 'professor', 'admin')
 
+        existing_user = User.query.filter_by(username=username).first()
+        if existing_user:
+            flash(f"O nome de usuário '{username}' já existe. Por favor, escolha outro.", 'danger')
+            return redirect(url_for('main_bp.criar_usuario'))
+
         is_admin = (role_type == 'admin')
         is_professor = (role_type == 'professor')
         is_student = (role_type == 'student')
@@ -259,6 +265,10 @@ def criar_usuario():
 
             session_app.commit()
             trans_academic.commit()
+
+            # Log de auditoria
+            log_action('CREATE', table_affected='user', record_id=new_user.id, new_value={'username': new_user.username, 'role': new_user.role})
+
             flash(f'Usuário {username} criado com sucesso!', 'success')
             return redirect(url_for('main_bp.listar_usuarios'))
 
@@ -292,6 +302,11 @@ def excluir_usuario(user_id):
     if user_to_delete.id == current_user.id:
         flash('Você não pode excluir sua própria conta.', 'danger')
         return redirect(url_for('main_bp.listar_usuarios'))
+
+
+    # Log de auditoria ANTES de deletar
+    log_action('DELETE', table_affected='user', record_id=user_to_delete.id, old_value={'username': user_to_delete.username, 'role': user_to_delete.role})
+
 
     db.session.delete(user_to_delete)
     db.session.commit()
@@ -463,51 +478,6 @@ def relatorios():
     )
 
 
-@main_bp.route('/api/relatorio_desempenho')
-@login_required
-def api_relatorio_desempenho():
-    if not current_user.is_admin:
-        return jsonify({'error': 'Acesso negado'}), 403
-
-    academic_engine = db.get_engine(bind='academic')
-    with academic_engine.connect() as connection:
-        # Relatório 1: Média geral por disciplina
-        query_media = select(
-            disciplina_table.c.disciplina,
-            func.avg(nota_table.c.media_final).label('media_geral')
-        ).select_from(
-            join(nota_table, disciplina_table, nota_table.c.disciplina_id == disciplina_table.c.disciplina_id)
-        ).group_by(disciplina_table.c.disciplina).order_by(desc('media_geral'))
-
-        medias_result = connection.execute(query_media).mappings().all()
-        media_por_disciplina = [{'disciplina': row['disciplina'], 'media_geral': round(row['media_geral'], 2)} for row
-                                in medias_result]
-
-        # Relatório 2: Alunos em risco (média geral abaixo de 6.0)
-        subquery = select(
-            nota_table.c.aluno_id,
-            func.avg(nota_table.c.media_final).label('media_final_geral')
-        ).group_by(nota_table.c.aluno_id).having(func.avg(nota_table.c.media_final) < 6.0).alias('medias_alunos')
-
-        query_risco = select(
-            aluno_table.c.aluno,
-            turma_table.c.turma,
-            subquery.c.media_final_geral
-        ).select_from(
-            join(subquery, aluno_table, subquery.c.aluno_id == aluno_table.c.aluno_id)
-            .join(alunos_turma_table, aluno_table.c.aluno_id == alunos_turma_table.c.aluno_id)
-            .join(turma_table, alunos_turma_table.c.turma_id == turma_table.c.turma_id)
-        ).order_by(subquery.c.media_final_geral)
-
-        risco_result = connection.execute(query_risco).mappings().all()
-        alunos_em_risco = [dict(row) for row in risco_result]
-
-    return jsonify({
-        'media_por_disciplina': media_por_disciplina,
-        'alunos_em_risco': alunos_em_risco
-    })
-
-
 def process_files_async(folder_path, sid):
     try:
         time.sleep(1.0)
@@ -555,6 +525,107 @@ def gerenciar_matriculas():
         user_role=current_user.role,
         turmas=turmas
     )
+
+
+@main_bp.route('/auditoria')
+@login_required
+def auditoria():
+    if not current_user.is_admin:
+        flash('Acesso negado. Apenas administradores podem visualizar a trilha de auditoria.', 'danger')
+        return redirect(url_for('main_bp.get_files'))
+
+    page = request.args.get('page', 1, type=int)
+
+    # Query para buscar os logs com o nome do usuário
+    # Usando text() para uma query mais complexa entre bancos de dados (se necessário)
+    # ou um join se as tabelas estiverem no mesmo DB.
+    # Assumindo que a tabela `user` está no mesmo banco de dados de auditoria
+    query = text("""
+        SELECT a.id, a.data_acao, u.username, a.acao, a.tabela_afetada, a.registro_afetado_id
+        FROM audit_log a
+        LEFT JOIN user u ON a.usuario_id = u.id
+        ORDER BY a.data_acao DESC
+    """)
+
+    # Para simplicidade, vamos usar o query builder do SQLAlchemy
+    audit_log_table = db.metadata.tables.get('audit_log')
+    user_table = db.metadata.tables.get('user')
+
+    j = audit_log_table.outerjoin(user_table, audit_log_table.c.usuario_id == user_table.c.id)
+    query_final = select(
+        audit_log_table,
+        user_table.c.username
+    ).select_from(j).order_by(audit_log_table.c.data_acao.desc())
+
+    # A paginação com join pode ser complexa, vamos buscar todos e paginar na aplicação
+    # (Para produção, uma solução mais otimizada seria necessária)
+    with db.engine.connect() as connection:
+        results = connection.execute(query_final).mappings().all()
+
+    # Paginação manual
+    per_page = 20
+    start = (page - 1) * per_page
+    end = start + per_page
+    total_pages = (len(results) + per_page - 1) // per_page
+
+    paginated_results = results[start:end]
+
+    return render_template(
+        'main/auditoria.html',
+        logs=paginated_results,
+        page=page,
+        total_pages=total_pages,
+        username=current_user.username,
+        user_role=current_user.role
+    )
+
+
+
+# APIs
+
+@main_bp.route('/api/relatorio_desempenho')
+@login_required
+def api_relatorio_desempenho():
+    if not current_user.is_admin:
+        return jsonify({'error': 'Acesso negado'}), 403
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        # Relatório 1: Média geral por disciplina
+        query_media = select(
+            disciplina_table.c.disciplina,
+            func.avg(nota_table.c.media_final).label('media_geral')
+        ).select_from(
+            join(nota_table, disciplina_table, nota_table.c.disciplina_id == disciplina_table.c.disciplina_id)
+        ).group_by(disciplina_table.c.disciplina).order_by(desc('media_geral'))
+
+        medias_result = connection.execute(query_media).mappings().all()
+        media_por_disciplina = [{'disciplina': row['disciplina'], 'media_geral': round(row['media_geral'], 2)} for row
+                                in medias_result]
+
+        # Relatório 2: Alunos em risco (média geral abaixo de 6.0)
+        subquery = select(
+            nota_table.c.aluno_id,
+            func.avg(nota_table.c.media_final).label('media_final_geral')
+        ).group_by(nota_table.c.aluno_id).having(func.avg(nota_table.c.media_final) < 6.0).alias('medias_alunos')
+
+        query_risco = select(
+            aluno_table.c.aluno,
+            turma_table.c.turma,
+            subquery.c.media_final_geral
+        ).select_from(
+            join(subquery, aluno_table, subquery.c.aluno_id == aluno_table.c.aluno_id)
+            .join(alunos_turma_table, aluno_table.c.aluno_id == alunos_turma_table.c.aluno_id)
+            .join(turma_table, alunos_turma_table.c.turma_id == turma_table.c.turma_id)
+        ).order_by(subquery.c.media_final_geral)
+
+        risco_result = connection.execute(query_risco).mappings().all()
+        alunos_em_risco = [dict(row) for row in risco_result]
+
+    return jsonify({
+        'media_por_disciplina': media_por_disciplina,
+        'alunos_em_risco': alunos_em_risco
+    })
 
 
 @main_bp.route('/api/alunos_por_turma_status')

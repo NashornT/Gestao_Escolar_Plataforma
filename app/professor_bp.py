@@ -7,6 +7,7 @@ from app import turma_table, disciplina_table, aluno_table, nota_table, alunos_t
 from datetime import datetime
 from werkzeug.utils import secure_filename
 from app.models import User
+from app.audit_log import log_action
 import uuid
 import os
 
@@ -162,13 +163,15 @@ def api_atualizar_dados():
                 if not registro_atual:
                     continue
 
-                valores_finais = {
-                    "nota_1_bimestre_final": registro_atual.nota_1_bimestre_final,
-                    "nota_2_bimestre_final": registro_atual.nota_2_bimestre_final,
-                    "nota_3_bimestre_final": registro_atual.nota_3_bimestre_final,
-                    "nota_4_bimestre_final": registro_atual.nota_4_bimestre_final,
-                    "total_faltas": registro_atual.total_faltas
+                old_values = {
+                    "nota_1_bimestre_final": registro_atual.get('nota_1_bimestre_final'),
+                    "nota_2_bimestre_final": registro_atual.get('nota_2_bimestre_final'),
+                    "nota_3_bimestre_final": registro_atual.get('nota_3_bimestre_final'),
+                    "nota_4_bimestre_final": registro_atual.get('nota_4_bimestre_final'),
+                    "total_faltas": registro_atual.get('total_faltas')
                 }
+
+                valores_finais = dict(registro_atual)
 
                 # 2. Atualiza os valores com os dados recebidos
                 for campo, valor_str in campos_para_atualizar.items():
@@ -201,6 +204,14 @@ def api_atualizar_dados():
                 stmt = update(nota_table).where(nota_table.c.nota_id == nota_id).values(valores_finais)
                 connection.execute(stmt)
 
+                log_action(
+                    action='UPDATE',
+                    table_affected='notas',
+                    record_id=nota_id,
+                    old_value=old_values,
+                    new_value={k: valores_finais[k] for k in old_values.keys()}
+                )
+
             trans.commit()
             return jsonify({'success': True, 'message': 'Dados atualizados com sucesso!'})
         except Exception as e:
@@ -231,7 +242,17 @@ def gerenciar_anuncios():
                     conteudo=conteudo,
                     data_postagem=datetime.now()
                 )
-                conn_academic.execute(stmt_anuncio)
+                result = conn_academic.execute(stmt_anuncio)
+
+                novo_anuncio_id = result.inserted_primary_key[0]
+                log_action(
+                    action='CREATE',
+                    table_affected='anuncios',
+                    record_id=novo_anuncio_id,
+                    new_value={'titulo': titulo}
+                )
+
+
                 trans_academic.commit()
 
                 alunos = User.query.filter_by(role='student').all()
@@ -426,6 +447,14 @@ def excluir_anuncio(anuncio_id):
             if not anuncio:
                 flash('Anúncio não encontrado ou você não tem permissão para excluí-lo.', 'danger')
                 return redirect(url_for('professor_bp.gerenciar_anuncios'))
+
+
+            log_action(
+                action='DELETE',
+                table_affected='anuncios',
+                record_id=anuncio_id,
+                old_value={'titulo': anuncio.titulo}
+            )
 
             stmt = anuncio_table.delete().where(anuncio_table.c.anuncio_id == anuncio_id)
             connection.execute(stmt)

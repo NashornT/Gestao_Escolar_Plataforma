@@ -41,6 +41,9 @@
                     <li class="nav-item">
                         <a class="nav-link {% if request.endpoint == 'main_bp.gerenciar_matriculas' %}active{% endif %}" href="{{ url_for('main_bp.gerenciar_matriculas') }}">Matrículas</a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('main_bp.auditoria') }}">Auditoria</a>
+                    </li>
                 </ul>
                 <ul class="navbar-nav ms-auto">
                     <li class="nav-item dropdown">
