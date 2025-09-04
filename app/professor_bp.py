@@ -2,8 +2,9 @@ from flask import Blueprint, render_template, request, jsonify, flash, redirect,
 from flask_login import login_required, current_user
 from sqlalchemy.sql import select, update, insert, join, distinct
 from app import db, logger
-from app import turma_table, disciplina_table, aluno_table, nota_table, alunos_turma_table, \
-    professores_turmas_disciplinas_table, anuncio_table, material_aula_table, comentario_anuncio_table, notificacao_table, socketio
+from app import (turma_table, disciplina_table, aluno_table, nota_table, alunos_turma_table, \
+    professores_turmas_disciplinas_table, anuncio_table, material_aula_table, comentario_anuncio_table,
+                 notificacao_table, socketio, diario_de_classe_table)
 from datetime import datetime
 from werkzeug.utils import secure_filename
 from app.models import User
@@ -713,4 +714,100 @@ def api_historico_aluno_disciplina():
             return jsonify({'error': 'Histórico não encontrado para este aluno nesta disciplina.'}), 404
 
         return jsonify(dict(historico))
+
+
+
+@professor_bp.route('/diario')
+@login_required
+def diario_de_classe():
+    """Renderiza a página do diário de classe."""
+    # A lógica para buscar as turmas atribuídas ao professor já existe
+    # em outras rotas e pode ser reutilizada aqui.
+    professor_id_logado = current_user.professor_id
+    turmas_atribuidas = []
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        if professor_id_logado:
+            join_turmas = join(turma_table, professores_turmas_disciplinas_table,
+                               turma_table.c.turma_id == professores_turmas_disciplinas_table.c.turma_id)
+            query_turmas = select(
+                distinct(turma_table.c.turma_id),
+                turma_table.c.turma,
+                turma_table.c.turno
+            ).select_from(join_turmas).where(
+                professores_turmas_disciplinas_table.c.professor_id == professor_id_logado
+            ).order_by(turma_table.c.turma, turma_table.c.turno)
+            turmas_atribuidas = connection.execute(query_turmas).all()
+
+    return render_template('professor/diario_de_classe.html',
+                           turmas=turmas_atribuidas,
+                           username=current_user.username,
+                           user_role=current_user.role)
+
+@professor_bp.route('/api/diario/salvar', methods=['POST'])
+@login_required
+def salvar_entrada_diario():
+    """Salva uma nova entrada no diário de classe."""
+    data = request.get_json()
+    turma_id = data.get('turma_id')
+    disciplina_id = data.get('disciplina_id')
+    data_aula_str = data.get('data_aula')
+    conteudo = data.get('conteudo_ministrado')
+    observacoes = data.get('observacoes', '')
+
+    if not all([turma_id, disciplina_id, data_aula_str, conteudo]):
+        return jsonify({'message': 'Todos os campos obrigatórios devem ser preenchidos.'}), 400
+
+    try:
+        data_aula = datetime.strptime(data_aula_str, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({'message': 'Formato de data inválido. Use AAAA-MM-DD.'}), 400
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        trans = connection.begin()
+        try:
+            stmt = insert(diario_de_classe_table).values(
+                professor_id=current_user.professor_id,
+                turma_id=turma_id,
+                disciplina_id=disciplina_id,
+                data_aula=data_aula,
+                conteudo_ministrado=conteudo,
+                observacoes=observacoes
+            )
+            connection.execute(stmt)
+            trans.commit()
+            return jsonify({'message': 'Registro salvo com sucesso!'})
+        except Exception as e:
+            trans.rollback()
+            logger.error(f"Erro ao salvar entrada no diário: {e}", exc_info=True)
+            return jsonify({'message': f'Erro no servidor: {e}'}), 500
+
+
+@professor_bp.route('/api/diario/entradas')
+@login_required
+def buscar_entradas_diario():
+    """Busca entradas existentes no diário para uma turma/disciplina."""
+    turma_id = request.args.get('turma_id')
+    disciplina_id = request.args.get('disciplina_id')
+
+    if not turma_id or not disciplina_id:
+        return jsonify({'error': 'ID da Turma e da Disciplina são obrigatórios'}), 400
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        query = select(diario_de_classe_table).where(
+            diario_de_classe_table.c.turma_id == turma_id,
+            diario_de_classe_table.c.disciplina_id == disciplina_id
+        ).order_by(diario_de_classe_table.c.data_aula.desc())
+
+        resultados = connection.execute(query).mappings().all()
+        # Converte as datas para string no formato ISO para ser serializável em JSON
+        entradas = [
+            {**row, 'data_aula': row['data_aula'].isoformat()}
+            for row in resultados
+        ]
+
+    return jsonify(entradas)
+
 

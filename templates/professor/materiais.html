@@ -19,15 +19,12 @@
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('main_bp.get_files') }}">Início</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link active" aria-current="page" href="{{ url_for('professor_bp.gerenciar_notas') }}">Gerenciar Notas</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('professor_bp.lancar_nota_individual_page') }}">Lançamento Individual</a>
-                    </li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('main_bp.get_files') }}">Início</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('professor_bp.gerenciar_notas') }}">Gerenciar Notas</a></li>
+                    <li class="nav-item"><a class="nav-link" aria-current="page" href="{{ url_for('professor_bp.lancar_nota_individual_page') }}">Lançamento Individual</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('professor_bp.gerenciar_anuncios') }}">Gerenciar Anúncios</a></li>
+                    <li class="nav-item"><a class="nav-link active" href="{{ url_for('professor_bp.gerenciar_materiais') }}">Adicionar Material</a></li>
+                    <li class="nav-item"><a class="nav-link " aria-current="page" href="{{ url_for('professor_bp.diario_de_classe') }}">Diário de Classe</a></li>
                 </ul>
                 <ul class="navbar-nav ms-auto">
                     <li class="nav-item dropdown">
@@ -43,12 +40,16 @@
                         <span class="nav-link">Bem-vindo, {{ username }} ({{ user_role }})</span>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('account.mudar_senha') }}">Mudar Senha</a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link btn btn-danger text-white" href="{{ url_for('auth.logout') }}">Sair</a>
                     </li>
                 </ul>
             </div>
         </div>
     </nav>
+
     <div class="container mt-4">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}

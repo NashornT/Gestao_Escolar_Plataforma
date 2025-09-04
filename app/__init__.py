@@ -4,7 +4,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
 from flask_socketio import SocketIO
 from methods.logging_config import setup_logging
-from sqlalchemy import Table, MetaData, Column, Integer, String, DateTime, Text
+from sqlalchemy import Table, MetaData, Column, Integer, String, DateTime, Text, Date
 import logging
 
 db = SQLAlchemy()
@@ -25,6 +25,7 @@ material_aula_table = None
 comentario_anuncio_table = None
 notificacao_table = None
 audit_log_table = None
+diario_de_classe_table = None
 
 
 def create_app():
@@ -40,7 +41,8 @@ def create_app():
     setup_logging()
 
     global turma_table, disciplina_table, aluno_table, nota_table, alunos_turma_table, professor_table, \
-        professores_turmas_disciplinas_table, anuncio_table, material_aula_table, comentario_anuncio_table, notificacao_table
+        professores_turmas_disciplinas_table, anuncio_table, material_aula_table, comentario_anuncio_table, notificacao_table, \
+        diario_de_classe_table
 
     with app.app_context():
         try:
@@ -83,6 +85,17 @@ def create_app():
             anuncio_table = Table('anuncios', academic_metadata, autoload_with=academic_engine)
             material_aula_table = Table('materiais_aula', academic_metadata, autoload_with=academic_engine)
             comentario_anuncio_table = Table('comentarios_anuncios', academic_metadata, autoload_with=academic_engine)
+
+
+            diario_de_classe_table = Table('diario_de_classe', academic_metadata,
+                                            Column('diario_id', Integer, primary_key=True),
+                                            Column('professor_id', String(255)),
+                                            Column('turma_id', String(255)),
+                                            Column('disciplina_id', Integer),
+                                            Column('data_aula', Date),
+                                            Column('conteudo_ministrado', Text),
+                                            Column('observacoes', Text, nullable=True),
+                                            autoload_with=academic_engine)
 
             logger.info("Tabelas refletidas com sucesso.")
         except Exception as e:
