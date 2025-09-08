@@ -657,13 +657,14 @@ def api_alunos_por_turma_status():
             aluno_table.c.aluno_id,
             aluno_table.c.aluno
         ).where(aluno_table.c.aluno_id.notin_(matriculados_ids)).order_by(aluno_table.c.aluno)
+
+        # Correção aqui: Adicione .mappings().all()
         disponiveis = connection.execute(query_disponiveis).mappings().all()
 
     return jsonify({
         'matriculados': [dict(row) for row in matriculados],
         'disponiveis': [dict(row) for row in disponiveis]
     })
-
 
 @main_bp.route('/api/atualizar_matricula', methods=['POST'])
 @login_required
@@ -780,3 +781,47 @@ def api_criar_aluno():
         except Exception as e:
             logger.error(f"Erro ao limpar a turma: {e}", exc_info=True)
             return jsonify({'success': False, 'message': f'Erro no servidor ao limpar a turma: {e}'}), 500
+@main_bp.route('/criar_turma', methods=['GET'])
+@login_required
+def criar_turma():
+    if not current_user.is_admin:
+        flash('Acesso negado. Apenas administradores podem criar turmas.', 'danger')
+        return redirect(url_for('main_bp.get_files'))
+    return render_template('main/criar_turma.html')
+
+
+@main_bp.route('/api/criar_turma', methods=['POST'])
+@login_required
+def api_criar_turma():
+    if not current_user.is_admin:
+        return jsonify({'message': 'Acesso negado.'}), 403
+
+    data = request.get_json()
+    nome_turma = data.get('nome_turma')
+    turno = data.get('turno')
+    ano_letivo = data.get('ano_letivo')
+
+    if not all([nome_turma, turno, ano_letivo]):
+        return jsonify({'message': 'Todos os campos são obrigatórios.'}), 400
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        trans = connection.begin()
+        try:
+            # Gera um ID numérico único para a turma usando o timestamp
+            novo_turma_id = int(time.time() * 1000)
+
+            nova_turma = {
+                "turma_id": novo_turma_id,
+                "turma": nome_turma,
+                "turno": turno,
+                "ano_escolar": ano_letivo
+            }
+            stmt = insert(turma_table).values(nova_turma)
+            connection.execute(stmt)
+            trans.commit()
+            return jsonify({'message': 'Turma criada com sucesso!'}), 201
+        except Exception as e:
+            trans.rollback()
+            logger.error(f"Erro ao criar turma: {e}", exc_info=True)
+            return jsonify({'message': f'Erro no servidor: {e}'}), 500
