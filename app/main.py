@@ -29,6 +29,42 @@ def allowed_file(filename):
 @main_bp.route('/get_files')
 @login_required
 def get_files():
+    # Se o usuário for um administrador, carrega o dashboard
+    if current_user.is_admin:
+        # Busca os totais de usuários diretamente da tabela User
+        total_alunos = User.query.filter_by(role='student').count()
+        total_professores = User.query.filter_by(role='professor').count()
+
+        academic_engine = db.get_engine(bind='academic')
+        with academic_engine.connect() as connection:
+            # Busca o total de turmas ÚNICAS e os dados para o gráfico
+            total_turmas = connection.execute(select(func.count(distinct(turma_table.c.turma_id)))).scalar()
+
+            # Dados para o gráfico de alunos por turma
+            query_alunos_por_turma = select(
+                turma_table.c.turma,
+                func.count(alunos_turma_table.c.aluno_id).label('num_alunos')
+            ).select_from(
+                turma_table.join(alunos_turma_table, turma_table.c.turma_id == alunos_turma_table.c.turma_id)
+            ).group_by(turma_table.c.turma).order_by(turma_table.c.turma)
+
+            alunos_por_turma_result = connection.execute(query_alunos_por_turma).mappings().all()
+
+            # Prepara os dados para o JavaScript do gráfico
+            chart_labels = [item['turma'] for item in alunos_por_turma_result]
+            chart_data = [item['num_alunos'] for item in alunos_por_turma_result]
+
+        return render_template(
+            'main/dashboard_admin.html',
+            username=current_user.username,
+            user_role=current_user.role,
+            total_alunos=total_alunos,
+            total_professores=total_professores,
+            total_turmas=total_turmas,
+            chart_labels=json.dumps(chart_labels),
+            chart_data=json.dumps(chart_data)
+        )
+
     atribuicoes = []
     # Se o usuário logado for um professor, busca suas atribuições
     if current_user.is_professor:
@@ -54,7 +90,7 @@ def get_files():
         'main/index.html',
         username=current_user.username,
         user_role=current_user.role,
-        atribuicoes=atribuicoes  # Envia a lista de atribuições para o template
+        atribuicoes=atribuicoes
     )
 
 @main_bp.route('/processar_arquivos', methods=['POST'])

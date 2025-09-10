@@ -41,29 +41,6 @@
                         <a class="nav-link" aria-current="page" href="{{ url_for('professor_bp.diario_de_classe') }}">Diário de Classe</a>
                     </li>
                     {% endif %}
-                    {% if user_role == 'admin' %}
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('main_bp.baixar_dados') }}">Baixar Dados Gerais</a>
-                    </li>
-                    <li class="nav-item">
-                         <a class="nav-link {% if request.endpoint == 'main_bp.listar_usuarios' %}active{% endif %}" href="{{ url_for('main_bp.listar_usuarios') }}">Gerenciar Usuários</a>
-                    </li>
-                    <li class="nav-item">
-                         <a class="nav-link {% if request.endpoint == 'main_bp.criar_usuario' %}active{% endif %}" href="{{ url_for('main_bp.criar_usuario') }}">Criar Usuário</a>
-                    </li>
-                    <li class="nav-item">
-                         <a class="nav-link {% if request.endpoint == 'main_bp.relatorios' %}active{% endif %}" href="{{ url_for('main_bp.relatorios') }}">Relatórios</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'main_bp.gerenciar_matriculas' %}active{% endif %}" href="{{ url_for('main_bp.gerenciar_matriculas') }}">Matrículas</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('main_bp.auditoria') }}">Auditoria</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" aria-current="page" href="{{ url_for('main_bp.criar_turma') }}">Criar Turma</a>
-                    </li>
-                    {% endif %}
                 </ul>
                 <ul class="navbar-nav ms-auto d-flex align-items-center">
                     <li class="nav-item dropdown">
