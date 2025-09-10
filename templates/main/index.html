@@ -28,19 +28,17 @@
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('professor_bp.gerenciar_notas') }}">Gerenciar Notas</a>
                     </li>
-                    {% endif %}
-                    {% if user_role == 'admin' %}
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('main_bp.baixar_dados') }}">Baixar Dados Gerais</a>
+                        <a class="nav-link" aria-current="page" href="{{ url_for('professor_bp.lancar_nota_individual_page') }}">Lançamento Individual</a>
                     </li>
                     <li class="nav-item">
-                         <a class="nav-link {% if request.endpoint == 'main_bp.listar_usuarios' %}active{% endif %}" href="{{ url_for('main_bp.listar_usuarios') }}">Gerenciar Usuários</a>
+                        <a class="nav-link" href="{{ url_for('professor_bp.gerenciar_anuncios') }}">Gerenciar Anúncios</a>
                     </li>
                     <li class="nav-item">
-                         <a class="nav-link {% if request.endpoint == 'main_bp.criar_usuario' %}active{% endif %}" href="{{ url_for('main_bp.criar_usuario') }}">Criar Usuário</a>
+                        <a class="nav-link" href="{{ url_for('professor_bp.gerenciar_materiais') }}">Adicionar Material</a>
                     </li>
                     <li class="nav-item">
-                         <a class="nav-link {% if request.endpoint == 'main_bp.relatorios' %}active{% endif %}" href="{{ url_for('main_bp.relatorios') }}">Relatórios</a>
+                        <a class="nav-link" aria-current="page" href="{{ url_for('professor_bp.diario_de_classe') }}">Diário de Classe</a>
                     </li>
                     {% endif %}
                 </ul>

@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file, current_app, jsonify
 from flask_login import login_required, current_user
-from sqlalchemy.sql import select, join, distinct, insert, update, func, desc
+from sqlalchemy.sql import select, join, distinct, insert, update, func, desc, delete, text
 from app import (db, socketio, logger, turma_table, disciplina_table, professor_table, \
     professores_turmas_disciplinas_table, aluno_table, comentario_anuncio_table, anuncio_table, notificacao_table,
                  nota_table, alunos_turma_table)
@@ -9,11 +9,13 @@ from methods.extract_data import ExtractData
 from methods.create_school_history import school_history
 from methods.download_data import download_school_data
 from datetime import datetime
+from app.audit_log import log_action
 import os
 import shutil
 import time
 import json
 import uuid
+from methods.generate_uuid import generate_uuid
 
 main_bp = Blueprint('main_bp', __name__, template_folder='../templates/main')
 
@@ -27,6 +29,42 @@ def allowed_file(filename):
 @main_bp.route('/get_files')
 @login_required
 def get_files():
+    # Se o usuário for um administrador, carrega o dashboard
+    if current_user.is_admin:
+        # Busca os totais de usuários diretamente da tabela User
+        total_alunos = User.query.filter_by(role='student').count()
+        total_professores = User.query.filter_by(role='professor').count()
+
+        academic_engine = db.get_engine(bind='academic')
+        with academic_engine.connect() as connection:
+            # Busca o total de turmas ÚNICAS e os dados para o gráfico
+            total_turmas = connection.execute(select(func.count(distinct(turma_table.c.turma_id)))).scalar()
+
+            # Dados para o gráfico de alunos por turma
+            query_alunos_por_turma = select(
+                turma_table.c.turma,
+                func.count(alunos_turma_table.c.aluno_id).label('num_alunos')
+            ).select_from(
+                turma_table.join(alunos_turma_table, turma_table.c.turma_id == alunos_turma_table.c.turma_id)
+            ).group_by(turma_table.c.turma).order_by(turma_table.c.turma)
+
+            alunos_por_turma_result = connection.execute(query_alunos_por_turma).mappings().all()
+
+            # Prepara os dados para o JavaScript do gráfico
+            chart_labels = [item['turma'] for item in alunos_por_turma_result]
+            chart_data = [item['num_alunos'] for item in alunos_por_turma_result]
+
+        return render_template(
+            'main/dashboard_admin.html',
+            username=current_user.username,
+            user_role=current_user.role,
+            total_alunos=total_alunos,
+            total_professores=total_professores,
+            total_turmas=total_turmas,
+            chart_labels=json.dumps(chart_labels),
+            chart_data=json.dumps(chart_data)
+        )
+
     atribuicoes = []
     # Se o usuário logado for um professor, busca suas atribuições
     if current_user.is_professor:
@@ -52,7 +90,7 @@ def get_files():
         'main/index.html',
         username=current_user.username,
         user_role=current_user.role,
-        atribuicoes=atribuicoes  # Envia a lista de atribuições para o template
+        atribuicoes=atribuicoes
     )
 
 @main_bp.route('/processar_arquivos', methods=['POST'])
@@ -202,6 +240,11 @@ def criar_usuario():
         password = request.form.get('password')
         role_type = request.form.get('role_type')  # Pega o valor do radio button ('student', 'professor', 'admin')
 
+        existing_user = User.query.filter_by(username=username).first()
+        if existing_user:
+            flash(f"O nome de usuário '{username}' já existe. Por favor, escolha outro.", 'danger')
+            return redirect(url_for('main_bp.criar_usuario'))
+
         is_admin = (role_type == 'admin')
         is_professor = (role_type == 'professor')
         is_student = (role_type == 'student')
@@ -258,6 +301,10 @@ def criar_usuario():
 
             session_app.commit()
             trans_academic.commit()
+
+            # Log de auditoria
+            log_action('CREATE', table_affected='user', record_id=new_user.id, new_value={'username': new_user.username, 'role': new_user.role})
+
             flash(f'Usuário {username} criado com sucesso!', 'success')
             return redirect(url_for('main_bp.listar_usuarios'))
 
@@ -291,6 +338,11 @@ def excluir_usuario(user_id):
     if user_to_delete.id == current_user.id:
         flash('Você não pode excluir sua própria conta.', 'danger')
         return redirect(url_for('main_bp.listar_usuarios'))
+
+
+    # Log de auditoria ANTES de deletar
+    log_action('DELETE', table_affected='user', record_id=user_to_delete.id, old_value={'username': user_to_delete.username, 'role': user_to_delete.role})
+
 
     db.session.delete(user_to_delete)
     db.session.commit()
@@ -462,6 +514,111 @@ def relatorios():
     )
 
 
+def process_files_async(folder_path, sid):
+    try:
+        time.sleep(1.0)
+        if not os.path.exists(folder_path) or not os.listdir(folder_path):
+            logger.warning(
+                f"Pasta de uploads '{folder_path}' não encontrada ou vazia durante o processamento assíncrono.")
+            socketio.emit('processing_complete',
+                          {'status': 'error', 'message': 'Nenhum arquivo para processar na pasta de uploads.'},
+                          room=sid)
+            return
+
+        logger.info(f"Arquivos detectados para processamento: {os.listdir(folder_path)}")
+        ExtractData(folder_path=folder_path).run()
+        socketio.emit('processing_complete', {'status': 'success', 'message': 'Arquivos processados com sucesso!'},
+                      room=sid)
+    except Exception as e:
+        logger.error(f"Erro no processamento assíncrono: {e}", exc_info=True)
+        socketio.emit('processing_complete', {'status': 'error', 'message': f'Erro ao processar arquivos: {e}'},
+                      room=sid)
+    finally:
+        if os.path.exists(folder_path):
+            try:
+                shutil.rmtree(folder_path)
+                logger.info(f"Pasta de uploads '{folder_path}' removida após processamento.")
+            except OSError as e:
+                logger.error(f"Erro ao remover pasta de uploads '{folder_path}': {e}", exc_info=True)
+
+
+
+@main_bp.route('/gerenciar-matriculas')
+@login_required
+def gerenciar_matriculas():
+    if not current_user.is_admin:
+        flash('Acesso negado. Apenas administradores podem gerenciar matrículas.', 'danger')
+        return redirect(url_for('main_bp.get_files'))
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        turmas = connection.execute(
+            select(turma_table).order_by(turma_table.c.turma, turma_table.c.turno)).all()
+
+    return render_template(
+        'main/gerenciar_matriculas.html',
+        username=current_user.username,
+        user_role=current_user.role,
+        turmas=turmas
+    )
+
+
+@main_bp.route('/auditoria')
+@login_required
+def auditoria():
+    if not current_user.is_admin:
+        flash('Acesso negado. Apenas administradores podem visualizar a trilha de auditoria.', 'danger')
+        return redirect(url_for('main_bp.get_files'))
+
+    page = request.args.get('page', 1, type=int)
+
+    # Query para buscar os logs com o nome do usuário
+    # Usando text() para uma query mais complexa entre bancos de dados (se necessário)
+    # ou um join se as tabelas estiverem no mesmo DB.
+    # Assumindo que a tabela `user` está no mesmo banco de dados de auditoria
+    query = text("""
+        SELECT a.id, a.data_acao, u.username, a.acao, a.tabela_afetada, a.registro_afetado_id
+        FROM audit_log a
+        LEFT JOIN user u ON a.usuario_id = u.id
+        ORDER BY a.data_acao DESC
+    """)
+
+    # Para simplicidade, vamos usar o query builder do SQLAlchemy
+    audit_log_table = db.metadata.tables.get('audit_log')
+    user_table = db.metadata.tables.get('user')
+
+    j = audit_log_table.outerjoin(user_table, audit_log_table.c.usuario_id == user_table.c.id)
+    query_final = select(
+        audit_log_table,
+        user_table.c.username
+    ).select_from(j).order_by(audit_log_table.c.data_acao.desc())
+
+    # A paginação com join pode ser complexa, vamos buscar todos e paginar na aplicação
+    # (Para produção, uma solução mais otimizada seria necessária)
+    with db.engine.connect() as connection:
+        results = connection.execute(query_final).mappings().all()
+
+    # Paginação manual
+    per_page = 20
+    start = (page - 1) * per_page
+    end = start + per_page
+    total_pages = (len(results) + per_page - 1) // per_page
+
+    paginated_results = results[start:end]
+
+    return render_template(
+        'main/auditoria.html',
+        logs=paginated_results,
+        page=page,
+        total_pages=total_pages,
+        username=current_user.username,
+        user_role=current_user.role
+    )
+
+
+
+# APIs
+
 @main_bp.route('/api/relatorio_desempenho')
 @login_required
 def api_relatorio_desempenho():
@@ -507,29 +664,200 @@ def api_relatorio_desempenho():
     })
 
 
-def process_files_async(folder_path, sid):
-    try:
-        time.sleep(1.0)
-        if not os.path.exists(folder_path) or not os.listdir(folder_path):
-            logger.warning(
-                f"Pasta de uploads '{folder_path}' não encontrada ou vazia durante o processamento assíncrono.")
-            socketio.emit('processing_complete',
-                          {'status': 'error', 'message': 'Nenhum arquivo para processar na pasta de uploads.'},
-                          room=sid)
-            return
+@main_bp.route('/api/alunos_por_turma_status')
+@login_required
+def api_alunos_por_turma_status():
+    if not current_user.is_admin:
+        return jsonify({'error': 'Acesso negado'}), 403
 
-        logger.info(f"Arquivos detectados para processamento: {os.listdir(folder_path)}")
-        ExtractData(folder_path=folder_path).run()
-        socketio.emit('processing_complete', {'status': 'success', 'message': 'Arquivos processados com sucesso!'},
-                      room=sid)
+    turma_id = request.args.get('turma_id')
+    if not turma_id:
+        return jsonify({'error': 'ID da Turma é obrigatório'}), 400
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        # Alunos já matriculados na turma
+        query_matriculados = select(
+            aluno_table.c.aluno_id,
+            aluno_table.c.aluno
+        ).join(
+            alunos_turma_table, aluno_table.c.aluno_id == alunos_turma_table.c.aluno_id
+        ).where(alunos_turma_table.c.turma_id == turma_id).order_by(aluno_table.c.aluno)
+        matriculados = connection.execute(query_matriculados).mappings().all()
+
+        # Alunos ainda não matriculados em nenhuma turma
+        query_matriculados_ids = select(alunos_turma_table.c.aluno_id)
+        matriculados_ids = [row.aluno_id for row in connection.execute(query_matriculados_ids).all()]
+
+        query_disponiveis = select(
+            aluno_table.c.aluno_id,
+            aluno_table.c.aluno
+        ).where(aluno_table.c.aluno_id.notin_(matriculados_ids)).order_by(aluno_table.c.aluno)
+
+        # Correção aqui: Adicione .mappings().all()
+        disponiveis = connection.execute(query_disponiveis).mappings().all()
+
+    return jsonify({
+        'matriculados': [dict(row) for row in matriculados],
+        'disponiveis': [dict(row) for row in disponiveis]
+    })
+
+@main_bp.route('/api/atualizar_matricula', methods=['POST'])
+@login_required
+def api_atualizar_matricula():
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'message': 'Acesso negado.'}), 403
+
+    data = request.get_json()
+    turma_id = data.get('turma_id')
+    aluno_id = data.get('aluno_id')
+    acao = data.get('acao') # 'matricular' ou 'desmatricular'
+
+    if not all([turma_id, aluno_id, acao]):
+        return jsonify({'success': False, 'message': 'Dados incompletos.'}), 400
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        trans = connection.begin()
+        try:
+            if acao == 'matricular':
+                stmt_insert = insert(alunos_turma_table).values(aluno_id=aluno_id, turma_id=turma_id)
+                connection.execute(stmt_insert)
+                message = 'Aluno matriculado com sucesso!'
+            elif acao == 'desmatricular':
+                stmt_delete = alunos_turma_table.delete().where(
+                    alunos_turma_table.c.aluno_id == aluno_id,
+                    alunos_turma_table.c.turma_id == turma_id
+                )
+                connection.execute(stmt_delete)
+                message = 'Aluno removido da turma com sucesso!'
+            else:
+                raise ValueError("Ação inválida.")
+
+            trans.commit()
+            return jsonify({'success': True, 'message': message})
+        except Exception as e:
+            trans.rollback()
+            logger.error(f"Erro ao atualizar matrícula: {e}", exc_info=True)
+            return jsonify({'success': False, 'message': f'Erro no servidor: {e}'}), 500
+
+
+@main_bp.route('/api/criar_aluno', methods=['POST'])
+@login_required
+def api_criar_aluno():
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'message': 'Acesso negado.'}), 403
+
+    data = request.get_json()
+    turma_id = data.get('turma_id')
+    aluno_nome = data.get('aluno_nome', '').strip()
+
+    if not all([turma_id, aluno_nome]):
+        return jsonify({'success': False, 'message': 'O nome do aluno e a turma são obrigatórios.'}), 400
+
+    academic_engine = db.get_engine(bind='academic')
+    try:
+        with academic_engine.connect() as connection:
+            with connection.begin():  # Inicia a transação aqui
+                # Verifica se já existe um aluno com o mesmo nome para evitar duplicatas
+                aluno_existente = connection.execute(
+                    select(aluno_table).where(aluno_table.c.aluno == aluno_nome)
+                ).first()
+                if aluno_existente:
+                    # Usamos um código de status 409 Conflict para indicar a duplicata
+                    return jsonify({'success': False, 'message': f'Aluno "{aluno_nome}" já existe.'}), 409
+
+                # 1. Cria o novo aluno na tabela 'alunos'
+                novo_aluno_id = generate_uuid(aluno_nome)
+                stmt_aluno = insert(aluno_table).values(
+                    aluno_id=novo_aluno_id,
+                    aluno=aluno_nome,
+                    status='Ativo'
+                )
+                connection.execute(stmt_aluno)
+
+                # 2. Matricula o novo aluno na turma selecionada
+                stmt_matricula = insert(alunos_turma_table).values(
+                    aluno_id=novo_aluno_id,
+                    turma_id=turma_id
+                )
+                connection.execute(stmt_matricula)
+
+        return jsonify({'success': True, 'message': f'Aluno "{aluno_nome}" criado e matriculado com sucesso!'})
+
     except Exception as e:
-        logger.error(f"Erro no processamento assíncrono: {e}", exc_info=True)
-        socketio.emit('processing_complete', {'status': 'error', 'message': f'Erro ao processar arquivos: {e}'},
-                      room=sid)
-    finally:
-        if os.path.exists(folder_path):
-            try:
-                shutil.rmtree(folder_path)
-                logger.info(f"Pasta de uploads '{folder_path}' removida após processamento.")
-            except OSError as e:
-                logger.error(f"Erro ao remover pasta de uploads '{folder_path}': {e}", exc_info=True)
+        logger.error(f"Erro ao criar novo aluno: {e}", exc_info=True)
+        return jsonify({'success': False, 'message': f'Erro no servidor ao criar aluno: {e}'}), 500
+
+    @main_bp.route('/api/limpar_turma', methods=['POST'])
+    @login_required
+    def api_limpar_turma():
+        if not current_user.is_admin:
+            return jsonify({'success': False, 'message': 'Acesso negado.'}), 403
+
+        data = request.get_json()
+        turma_id = data.get('turma_id')
+
+        if not turma_id:
+            return jsonify({'success': False, 'message': 'ID da Turma é obrigatório.'}), 400
+
+        academic_engine = db.get_engine(bind='academic')
+        try:
+            with academic_engine.connect() as connection:
+                with connection.begin():  # Gerenciamento automático de transação
+                    stmt = delete(alunos_turma_table).where(
+                        alunos_turma_table.c.turma_id == turma_id
+                    )
+                    result = connection.execute(stmt)
+
+                    # O rowcount informa quantos registros foram afetados (excluídos)
+                    message = f'{result.rowcount} alunos foram removidos da turma com sucesso!'
+                    return jsonify({'success': True, 'message': message})
+
+        except Exception as e:
+            logger.error(f"Erro ao limpar a turma: {e}", exc_info=True)
+            return jsonify({'success': False, 'message': f'Erro no servidor ao limpar a turma: {e}'}), 500
+@main_bp.route('/criar_turma', methods=['GET'])
+@login_required
+def criar_turma():
+    if not current_user.is_admin:
+        flash('Acesso negado. Apenas administradores podem criar turmas.', 'danger')
+        return redirect(url_for('main_bp.get_files'))
+    return render_template('main/criar_turma.html')
+
+
+@main_bp.route('/api/criar_turma', methods=['POST'])
+@login_required
+def api_criar_turma():
+    if not current_user.is_admin:
+        return jsonify({'message': 'Acesso negado.'}), 403
+
+    data = request.get_json()
+    nome_turma = data.get('nome_turma')
+    turno = data.get('turno')
+    ano_letivo = data.get('ano_letivo')
+
+    if not all([nome_turma, turno, ano_letivo]):
+        return jsonify({'message': 'Todos os campos são obrigatórios.'}), 400
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        trans = connection.begin()
+        try:
+            # Gera um ID numérico único para a turma usando o timestamp
+            novo_turma_id = int(time.time() * 1000)
+
+            nova_turma = {
+                "turma_id": novo_turma_id,
+                "turma": nome_turma,
+                "turno": turno,
+                "ano_escolar": ano_letivo
+            }
+            stmt = insert(turma_table).values(nova_turma)
+            connection.execute(stmt)
+            trans.commit()
+            return jsonify({'message': 'Turma criada com sucesso!'}), 201
+        except Exception as e:
+            trans.rollback()
+            logger.error(f"Erro ao criar turma: {e}", exc_info=True)
+            return jsonify({'message': f'Erro no servidor: {e}'}), 500

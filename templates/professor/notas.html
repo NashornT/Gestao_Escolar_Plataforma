@@ -23,7 +23,7 @@
     </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+<nav class="navbar navbar-expand-lg navbar-dark bg-primary">
         <div class="container-fluid">
             <a class="navbar-brand" href="{{ url_for('main_bp.get_files') }}">Gestão Escolar</a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
@@ -31,23 +31,12 @@
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('main_bp.get_files') }}">Início</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link active" aria-current="page" href="{{ url_for('professor_bp.gerenciar_notas') }}">Gerenciar Notas</a>
-                    </li>
-                    {% if user_role == 'admin' %}
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('main_bp.baixar_dados') }}">Baixar Dados Gerais</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('main_bp.listar_usuarios') }}">Gerenciar Usuários</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('main_bp.criar_usuario') }}">Criar Usuário</a>
-                    </li>
-                    {% endif %}
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('main_bp.get_files') }}">Início</a></li>
+                    <li class="nav-item"><a class="nav-link active" href="{{ url_for('professor_bp.gerenciar_notas') }}">Gerenciar Notas</a></li>
+                    <li class="nav-item"><a class="nav-link" aria-current="page" href="{{ url_for('professor_bp.lancar_nota_individual_page') }}">Lançamento Individual</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('professor_bp.gerenciar_anuncios') }}">Gerenciar Anúncios</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('professor_bp.gerenciar_materiais') }}">Adicionar Material</a></li>
+                    <li class="nav-item"><a class="nav-link " aria-current="page" href="{{ url_for('professor_bp.diario_de_classe') }}">Diário de Classe</a></li>
                 </ul>
                 <ul class="navbar-nav ms-auto">
                     <li class="nav-item dropdown">
@@ -215,19 +204,21 @@
                 return numero % 1 === 0 ? numero.toFixed(0) : numero.toFixed(1);
             }
 
-            function populateTable(alunos) {
+              function populateTable(alunos) {
                 if (alunos.length === 0) {
                     tableBody.innerHTML = '<tr><td colspan="6" class="text-center p-4">Nenhum aluno encontrado para esta turma.</td></tr>';
                 } else {
+                    tableBody.innerHTML = ''; // Limpa a tabela antes de popular
                     alunos.forEach(aluno => {
                         const dados = aluno.dados_nota;
+                        // CORREÇÃO: Os data-campo agora apontam para as colunas "_final"
                         const row = `
                             <tr>
                                 <td class="aluno-nome">${aluno.nome}</td>
-                                <td><input type="text" class="form-control form-control-sm editable" value="${formatarValor(dados.bimestres.b1.valor)}" data-nota-id="${dados.nota_id}" data-campo="nota_1_bimestre"></td>
-                                <td><input type="text" class="form-control form-control-sm editable" value="${formatarValor(dados.bimestres.b2.valor)}" data-nota-id="${dados.nota_id}" data-campo="nota_2_bimestre"></td>
-                                <td><input type="text" class="form-control form-control-sm editable" value="${formatarValor(dados.bimestres.b3.valor)}" data-nota-id="${dados.nota_id}" data-campo="nota_3_bimestre"></td>
-                                <td><input type="text" class="form-control form-control-sm editable" value="${formatarValor(dados.bimestres.b4.valor)}" data-nota-id="${dados.nota_id}" data-campo="nota_4_bimestre"></td>
+                                <td><input type="text" class="form-control form-control-sm editable" value="${formatarValor(dados.bimestres.b1.valor)}" data-nota-id="${dados.nota_id}" data-campo="nota_1_bimestre_final"></td>
+                                <td><input type="text" class="form-control form-control-sm editable" value="${formatarValor(dados.bimestres.b2.valor)}" data-nota-id="${dados.nota_id}" data-campo="nota_2_bimestre_final"></td>
+                                <td><input type="text" class="form-control form-control-sm editable" value="${formatarValor(dados.bimestres.b3.valor)}" data-nota-id="${dados.nota_id}" data-campo="nota_3_bimestre_final"></td>
+                                <td><input type="text" class="form-control form-control-sm editable" value="${formatarValor(dados.bimestres.b4.valor)}" data-nota-id="${dados.nota_id}" data-campo="nota_4_bimestre_final"></td>
                                 <td><input type="text" class="form-control form-control-sm editable" value="${formatarValor(dados.total_faltas)}" data-nota-id="${dados.nota_id}" data-campo="total_faltas"></td>
                             </tr>
                         `;

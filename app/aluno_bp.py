@@ -1,8 +1,9 @@
-from flask import Blueprint, render_template, flash, redirect, url_for, current_app, send_from_directory, send_file
+from flask import Blueprint, render_template, flash, redirect, url_for, current_app, send_from_directory, send_file, \
+    jsonify
 from flask_login import login_required, current_user
 from app import db, logger
 from app import (anuncio_table, material_aula_table, alunos_turma_table, turma_table, disciplina_table, nota_table,
-                 comentario_anuncio_table)
+                 comentario_anuncio_table, professores_turmas_disciplinas_table)
 from sqlalchemy.sql import select, join
 from io import BytesIO
 from fpdf import FPDF
@@ -28,49 +29,6 @@ def painel():
     academic_engine = db.get_engine(bind='academic')
 
     with academic_engine.connect() as connection:
-
-        # Busca todos os anúncios e seus comentários de uma vez usando LEFT JOIN
-        j = anuncio_table.outerjoin(
-            comentario_anuncio_table,
-            anuncio_table.c.anuncio_id == comentario_anuncio_table.c.anuncio_id
-        )
-
-        query = select(
-            anuncio_table,
-            comentario_anuncio_table
-        ).select_from(j).order_by(
-            anuncio_table.c.data_postagem.desc(),
-            comentario_anuncio_table.c.data_comentario.asc()
-        )
-
-        resultados = connection.execute(query).mappings().all()
-
-        # Organiza os resultados em uma estrutura aninhada (anúncios com seus comentários)
-        anuncios_dict = {}
-        for row in resultados:
-            anuncio_id = row['anuncio_id']
-            if anuncio_id not in anuncios_dict:
-                anuncios_dict[anuncio_id] = {
-                    'anuncio': {
-                        'anuncio_id': row['anuncio_id'],
-                        'titulo': row['titulo'],
-                        'conteudo': row['conteudo'],
-                        'data_postagem': row['data_postagem']
-                    },
-                    'comentarios': []
-                }
-
-            # Adiciona o comentário se ele existir (devido ao LEFT JOIN, pode ser nulo)
-            if row['comentario_id'] is not None:
-                anuncios_dict[anuncio_id]['comentarios'].append({
-                    'nome_usuario': row['nome_usuario'],
-                    'conteudo': row['comentarios_anuncios_conteudo'],
-                    'data_comentario': row['data_comentario']
-                })
-
-        anuncios_data = list(anuncios_dict.values())
-
-        # A lógica para buscar materiais continua a mesma
         aluno_id_logado = current_user.aluno_id
         if aluno_id_logado:
             query_turma_aluno = select(alunos_turma_table.c.turma_id).where(
@@ -80,19 +38,47 @@ def painel():
             if resultado_turma:
                 turma_id_aluno = resultado_turma.turma_id
 
-                query_info_turma = select(turma_table).where(turma_table.c.turma_id == turma_id_aluno)
-                info_turma_aluno = connection.execute(query_info_turma).first()
+                j_anuncios = anuncio_table.outerjoin(
+                    comentario_anuncio_table,
+                    anuncio_table.c.anuncio_id == comentario_anuncio_table.c.anuncio_id
+                ).join(
+                    professores_turmas_disciplinas_table,
+                    anuncio_table.c.professor_id == professores_turmas_disciplinas_table.c.professor_id
+                )
 
-                j_materiais = join(material_aula_table, disciplina_table,
-                                   material_aula_table.c.disciplina_id == disciplina_table.c.disciplina_id)
-                query_materiais = select(
-                    material_aula_table,
-                    disciplina_table.c.disciplina
-                ).select_from(j_materiais).where(
-                    material_aula_table.c.turma_id == turma_id_aluno
-                ).order_by(material_aula_table.c.data_upload.desc())
+                query = select(
+                    anuncio_table,
+                    comentario_anuncio_table
+                ).select_from(j_anuncios).where(
+                    professores_turmas_disciplinas_table.c.turma_id == turma_id_aluno
+                ).order_by(
+                    anuncio_table.c.data_postagem.desc(),
+                    comentario_anuncio_table.c.data_comentario.asc()
+                )
 
-                materiais_turma = connection.execute(query_materiais).all()
+                resultados = connection.execute(query).mappings().all()
+                anuncios_dict = {}
+                for row in resultados:
+                    anuncio_id = row['anuncio_id']
+                    if anuncio_id not in anuncios_dict:
+                        anuncios_dict[anuncio_id] = {
+                            'anuncio': {
+                                'anuncio_id': row['anuncio_id'],
+                                'titulo': row['titulo'],
+                                'conteudo': row['conteudo'],
+                                'data_postagem': row['data_postagem']
+                            },
+                            'comentarios': []
+                        }
+
+                    if row['comentario_id'] is not None:
+                        anuncios_dict[anuncio_id]['comentarios'].append({
+                            'nome_usuario': row['nome_usuario'],
+                            'conteudo': row['comentarios_anuncios_conteudo'],
+                            'data_comentario': row['data_comentario']
+                        })
+
+                anuncios_data = list(anuncios_dict.values())
 
     return render_template(
         'painel.html',
@@ -237,3 +223,33 @@ def exportar_boletim_pdf():
         download_name=f'boletim_{current_user.username}.pdf',
         mimetype='application/pdf'
     )
+
+
+@aluno_bp.route('/api/desempenho_pessoal')
+@login_required
+def api_desempenho_pessoal():
+    """
+    Retorna os dados de desempenho do aluno logado para o gráfico.
+    """
+    aluno_id_logado = current_user.aluno_id
+    if not aluno_id_logado:
+        return jsonify({'error': 'ID do aluno não encontrado.'}), 404
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        j = join(nota_table, disciplina_table, nota_table.c.disciplina_id == disciplina_table.c.disciplina_id)
+        query_desempenho = select(
+            disciplina_table.c.disciplina,
+            nota_table.c.media_final
+        ).select_from(j).where(
+            nota_table.c.aluno_id == aluno_id_logado,
+            nota_table.c.media_final.isnot(None)
+        ).order_by(disciplina_table.c.disciplina)
+
+        resultados = connection.execute(query_desempenho).mappings().all()
+
+        # Prepara os dados para o gráfico
+        labels = [row['disciplina'] for row in resultados]
+        data = [round(row['media_final'], 1) for row in resultados]
+
+    return jsonify({'labels': labels, 'data': data})

@@ -2,11 +2,13 @@ from flask import Blueprint, render_template, request, jsonify, flash, redirect,
 from flask_login import login_required, current_user
 from sqlalchemy.sql import select, update, insert, join, distinct
 from app import db, logger
-from app import turma_table, disciplina_table, aluno_table, nota_table, alunos_turma_table, \
-    professores_turmas_disciplinas_table, anuncio_table, material_aula_table, comentario_anuncio_table, notificacao_table, socketio
+from app import (turma_table, disciplina_table, aluno_table, nota_table, alunos_turma_table, \
+    professores_turmas_disciplinas_table, anuncio_table, material_aula_table, comentario_anuncio_table,
+                 notificacao_table, socketio, diario_de_classe_table)
 from datetime import datetime
 from werkzeug.utils import secure_filename
 from app.models import User
+from app.audit_log import log_action
 import uuid
 import os
 
@@ -97,13 +99,17 @@ def api_dados_turma():
                     nota_table.c.disciplina_id == disciplina_id
                 )
                 registro_nota = connection.execute(query_nota).first()
+
                 if registro_nota:
+                    # CORREÇÃO: Busca as notas FINAIS para exibir na tabela
                     notas_aluno = {
                         'nota_id': registro_nota.nota_id,
-                        'bimestres': {'b1': {'valor': registro_nota.nota_1_bimestre},
-                                      'b2': {'valor': registro_nota.nota_2_bimestre},
-                                      'b3': {'valor': registro_nota.nota_3_bimestre},
-                                      'b4': {'valor': registro_nota.nota_4_bimestre}},
+                        'bimestres': {
+                            'b1': {'valor': registro_nota.nota_1_bimestre_final},
+                            'b2': {'valor': registro_nota.nota_2_bimestre_final},
+                            'b3': {'valor': registro_nota.nota_3_bimestre_final},
+                            'b4': {'valor': registro_nota.nota_4_bimestre_final}
+                        },
                         'total_faltas': registro_nota.total_faltas
                     }
                 else:
@@ -127,7 +133,7 @@ def api_dados_turma():
         except Exception as e:
             trans.rollback()
             logger.error(f"Erro ao buscar dados da turma: {e}", exc_info=True)
-            return jsonify({'error': 'Ocorreu um erro interno no servidor ao buscar dados dos alunos.'}), 500
+            return jsonify({'error': 'Ocorreu um erro interno no servidor.'}), 500
     return jsonify(dados_formatados)
 
 
@@ -140,25 +146,73 @@ def api_atualizar_dados():
 
     academic_engine = db.get_engine(bind='academic')
     with academic_engine.connect() as connection:
+        # Agrupa todas as atualizações por nota_id para otimizar
+        updates_por_nota = {}
+        for item in data['dados']:
+            nota_id = item.get('nota_id')
+            if nota_id not in updates_por_nota:
+                updates_por_nota[nota_id] = {}
+            updates_por_nota[nota_id][item.get('campo')] = item.get('valor')
+
         trans = connection.begin()
         try:
-            for item in data['dados']:
-                nota_id = item.get('nota_id')
-                campo = item.get('campo')
-                valor_str = item.get('valor')
-                valor = None
-                if valor_str not in [None, '']:
-                    numeric_value = float(valor_str)
-                    if 'nota' in campo:
-                        if not (0 <= numeric_value <= 10):
-                            raise ValueError("A nota deve estar entre 0 e 10.")
-                        valor = numeric_value
-                    else:
-                        if numeric_value < 0:
-                            raise ValueError("O número de faltas não pode ser negativo.")
-                        valor = int(numeric_value)
-                stmt = update(nota_table).where(nota_table.c.nota_id == nota_id).values({campo: valor})
+            for nota_id, campos_para_atualizar in updates_por_nota.items():
+                # 1. Busca o registro atual da nota
+                registro_atual = connection.execute(
+                    select(nota_table).where(nota_table.c.nota_id == nota_id)
+                ).first()
+                if not registro_atual:
+                    continue
+
+                old_values = {
+                    "nota_1_bimestre_final": registro_atual.get('nota_1_bimestre_final'),
+                    "nota_2_bimestre_final": registro_atual.get('nota_2_bimestre_final'),
+                    "nota_3_bimestre_final": registro_atual.get('nota_3_bimestre_final'),
+                    "nota_4_bimestre_final": registro_atual.get('nota_4_bimestre_final'),
+                    "total_faltas": registro_atual.get('total_faltas')
+                }
+
+                valores_finais = dict(registro_atual)
+
+                # 2. Atualiza os valores com os dados recebidos
+                for campo, valor_str in campos_para_atualizar.items():
+                    valor = None
+                    if valor_str not in [None, '']:
+                        numeric_value = float(str(valor_str).replace(',', '.'))
+                        if 'nota' in campo:
+                            if not (0 <= numeric_value <= 10):
+                                raise ValueError(f"A nota '{numeric_value}' deve estar entre 0 e 10.")
+                            valor = numeric_value
+                        else:
+                            if numeric_value < 0:
+                                raise ValueError("O número de faltas não pode ser negativo.")
+                            valor = int(numeric_value)
+                    valores_finais[campo] = valor
+
+                # 3. Recalcula a média e o total
+                notas_validas = [n for n in [
+                    valores_finais['nota_1_bimestre_final'], valores_finais['nota_2_bimestre_final'],
+                    valores_finais['nota_3_bimestre_final'], valores_finais['nota_4_bimestre_final']
+                ] if n is not None]
+
+                nota_total = sum(notas_validas)
+                media_final = nota_total / len(notas_validas) if notas_validas else 0
+
+                valores_finais['nota_total'] = nota_total
+                valores_finais['media_final'] = round(media_final, 2)
+
+                # 4. Executa o update com todos os campos (originais + atualizados + calculados)
+                stmt = update(nota_table).where(nota_table.c.nota_id == nota_id).values(valores_finais)
                 connection.execute(stmt)
+
+                log_action(
+                    action='UPDATE',
+                    table_affected='notas',
+                    record_id=nota_id,
+                    old_value=old_values,
+                    new_value={k: valores_finais[k] for k in old_values.keys()}
+                )
+
             trans.commit()
             return jsonify({'success': True, 'message': 'Dados atualizados com sucesso!'})
         except Exception as e:
@@ -189,7 +243,17 @@ def gerenciar_anuncios():
                     conteudo=conteudo,
                     data_postagem=datetime.now()
                 )
-                conn_academic.execute(stmt_anuncio)
+                result = conn_academic.execute(stmt_anuncio)
+
+                novo_anuncio_id = result.inserted_primary_key[0]
+                log_action(
+                    action='CREATE',
+                    table_affected='anuncios',
+                    record_id=novo_anuncio_id,
+                    new_value={'titulo': titulo}
+                )
+
+
                 trans_academic.commit()
 
                 alunos = User.query.filter_by(role='student').all()
@@ -385,6 +449,14 @@ def excluir_anuncio(anuncio_id):
                 flash('Anúncio não encontrado ou você não tem permissão para excluí-lo.', 'danger')
                 return redirect(url_for('professor_bp.gerenciar_anuncios'))
 
+
+            log_action(
+                action='DELETE',
+                table_affected='anuncios',
+                record_id=anuncio_id,
+                old_value={'titulo': anuncio.titulo}
+            )
+
             stmt = anuncio_table.delete().where(anuncio_table.c.anuncio_id == anuncio_id)
             connection.execute(stmt)
 
@@ -474,4 +546,268 @@ def api_dados_graficos():
         'media_bimestres': [media_b1, media_b2, media_b3, media_b4],
         'distribuicao_notas': [abaixo_de_5, entre_5_e_6_9, entre_7_e_8_9, acima_de_9]
     })
+
+
+
+@professor_bp.route('/lancar-nota', methods=['GET'])
+@login_required
+def lancar_nota_individual_page():
+    # Esta rota apenas renderiza a página e carrega as turmas do professor
+    professor_id_logado = current_user.professor_id
+    turmas_atribuidas = []
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        if professor_id_logado:
+            join_turmas = join(turma_table, professores_turmas_disciplinas_table,
+                               turma_table.c.turma_id == professores_turmas_disciplinas_table.c.turma_id)
+            query_turmas = select(
+                distinct(turma_table.c.turma_id),
+                turma_table.c.turma,
+                turma_table.c.turno
+            ).select_from(join_turmas).where(
+                professores_turmas_disciplinas_table.c.professor_id == professor_id_logado
+            ).order_by(turma_table.c.turma, turma_table.c.turno)
+            turmas_atribuidas = connection.execute(query_turmas).all()
+
+    return render_template(
+        'professor/lancar_nota.html',
+        turmas=turmas_atribuidas,
+        username=current_user.username,
+        user_role=current_user.role
+    )
+
+
+@professor_bp.route('/api/alunos_por_turma')
+@login_required
+def api_alunos_por_turma():
+    turma_id = request.args.get('turma_id')
+    if not turma_id:
+        return jsonify({'error': 'ID da Turma é obrigatório'}), 400
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        j = join(aluno_table, alunos_turma_table, aluno_table.c.aluno_id == alunos_turma_table.c.aluno_id)
+        query_alunos = select(
+            aluno_table.c.aluno_id,
+            aluno_table.c.aluno
+        ).select_from(j).where(
+            alunos_turma_table.c.turma_id == turma_id
+        ).order_by(aluno_table.c.aluno)
+
+        alunos = connection.execute(query_alunos).mappings().all()
+        return jsonify([dict(row) for row in alunos])
+
+
+@professor_bp.route('/api/nota_aluno')
+@login_required
+def api_nota_aluno():
+    aluno_id = request.args.get('aluno_id')
+    disciplina_id = request.args.get('disciplina_id')
+    if not aluno_id or not disciplina_id:
+        return jsonify({'error': 'IDs do Aluno e da Disciplina são obrigatórios'}), 400
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        query_nota = select(nota_table).where(
+            nota_table.c.aluno_id == aluno_id,
+            nota_table.c.disciplina_id == disciplina_id
+        )
+        nota = connection.execute(query_nota).mappings().first()
+
+        # Se o aluno ainda não tem um registro de nota para essa disciplina, cria um
+        if not nota:
+            # Precisamos do ano letivo da turma para criar a nova entrada de nota
+            turma_id = request.args.get('turma_id')
+            query_ano_letivo = select(turma_table.c.ano_escolar).where(turma_table.c.turma_id == turma_id)
+            ano_letivo = connection.execute(query_ano_letivo).scalar_one_or_none() or str(datetime.now().year)
+
+            novo_nota_id = str(uuid.uuid4())
+            nova_nota = {
+                'nota_id': novo_nota_id, 'aluno_id': aluno_id, 'disciplina_id': disciplina_id,
+                'ano_letivo': ano_letivo
+            }
+            connection.execute(insert(nota_table).values(nova_nota))
+            connection.commit()
+
+            # Busca novamente para retornar o objeto completo
+            nota = connection.execute(query_nota).mappings().first()
+
+        return jsonify(dict(nota) if nota else {})
+
+
+@professor_bp.route('/lancar-nota', methods=['POST'])
+@login_required
+def salvar_nota_individual():
+    try:
+        nota_id = request.form.get('nota_id')
+        turma_id = request.form.get('turma_id')  # Adicionado para contexto
+
+        if not nota_id:
+            flash('Erro: ID da nota não encontrado. Não foi possível salvar.', 'danger')
+            return redirect(url_for('professor_bp.lancar_nota_individual_page'))
+
+        # Pega as notas do formulário, tratando valores vazios como None
+        n1 = request.form.get('nota_1_bimestre_final', default=None, type=float)
+        n2 = request.form.get('nota_2_bimestre_final', default=None, type=float)
+        n3 = request.form.get('nota_3_bimestre_final', default=None, type=float)
+        n4 = request.form.get('nota_4_bimestre_final', default=None, type=float)
+        faltas = request.form.get('total_faltas', default=None, type=int)
+
+        # Calcula a nota total e a média final
+        notas_validas = [n for n in [n1, n2, n3, n4] if n is not None]
+        nota_total = sum(notas_validas)
+        media_final = nota_total / len(notas_validas) if notas_validas else 0
+
+        stmt = (
+            update(nota_table)
+            .where(nota_table.c.nota_id == nota_id)
+            .values(
+                nota_1_bimestre_final=n1,
+                nota_2_bimestre_final=n2,
+                nota_3_bimestre_final=n3,
+                nota_4_bimestre_final=n4,
+                total_faltas=faltas,
+                nota_total=nota_total,
+                media_final=media_final
+            )
+        )
+
+        academic_engine = db.get_engine(bind='academic')
+        with academic_engine.connect() as connection:
+            trans = connection.begin()
+            try:
+                connection.execute(stmt)
+                trans.commit()
+                flash('Notas salvas com sucesso!', 'success')
+            except Exception as e:
+                trans.rollback()
+                logger.error(f"Erro ao salvar nota individual: {e}", exc_info=True)
+                flash(f'Erro ao salvar as notas: {str(e)}', 'danger')
+
+    except Exception as e:
+        logger.error(f"Erro no processamento do formulário de nota individual: {e}", exc_info=True)
+        flash('Ocorreu um erro inesperado ao processar sua solicitação.', 'danger')
+
+    # Redireciona de volta para a página, mantendo o filtro da turma selecionado
+    return redirect(url_for('professor_bp.lancar_nota_individual_page', turma_id=turma_id))
+
+
+
+@professor_bp.route('/api/historico_aluno_disciplina')
+@login_required
+def api_historico_aluno_disciplina():
+    aluno_id = request.args.get('aluno_id')
+    disciplina_id = request.args.get('disciplina_id')
+    if not aluno_id or not disciplina_id:
+        return jsonify({'error': 'IDs do Aluno e da Disciplina são obrigatórios'}), 400
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        # A query busca o registro de nota completo
+        query_historico = select(nota_table).where(
+            nota_table.c.aluno_id == aluno_id,
+            nota_table.c.disciplina_id == disciplina_id
+        )
+        historico = connection.execute(query_historico).mappings().first()
+
+        if not historico:
+            return jsonify({'error': 'Histórico não encontrado para este aluno nesta disciplina.'}), 404
+
+        return jsonify(dict(historico))
+
+
+
+@professor_bp.route('/diario')
+@login_required
+def diario_de_classe():
+    """Renderiza a página do diário de classe."""
+    # A lógica para buscar as turmas atribuídas ao professor já existe
+    # em outras rotas e pode ser reutilizada aqui.
+    professor_id_logado = current_user.professor_id
+    turmas_atribuidas = []
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        if professor_id_logado:
+            join_turmas = join(turma_table, professores_turmas_disciplinas_table,
+                               turma_table.c.turma_id == professores_turmas_disciplinas_table.c.turma_id)
+            query_turmas = select(
+                distinct(turma_table.c.turma_id),
+                turma_table.c.turma,
+                turma_table.c.turno
+            ).select_from(join_turmas).where(
+                professores_turmas_disciplinas_table.c.professor_id == professor_id_logado
+            ).order_by(turma_table.c.turma, turma_table.c.turno)
+            turmas_atribuidas = connection.execute(query_turmas).all()
+
+    return render_template('professor/diario_de_classe.html',
+                           turmas=turmas_atribuidas,
+                           username=current_user.username,
+                           user_role=current_user.role)
+
+@professor_bp.route('/api/diario/salvar', methods=['POST'])
+@login_required
+def salvar_entrada_diario():
+    """Salva uma nova entrada no diário de classe."""
+    data = request.get_json()
+    turma_id = data.get('turma_id')
+    disciplina_id = data.get('disciplina_id')
+    data_aula_str = data.get('data_aula')
+    conteudo = data.get('conteudo_ministrado')
+    observacoes = data.get('observacoes', '')
+
+    if not all([turma_id, disciplina_id, data_aula_str, conteudo]):
+        return jsonify({'message': 'Todos os campos obrigatórios devem ser preenchidos.'}), 400
+
+    try:
+        data_aula = datetime.strptime(data_aula_str, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({'message': 'Formato de data inválido. Use AAAA-MM-DD.'}), 400
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        trans = connection.begin()
+        try:
+            stmt = insert(diario_de_classe_table).values(
+                professor_id=current_user.professor_id,
+                turma_id=turma_id,
+                disciplina_id=disciplina_id,
+                data_aula=data_aula,
+                conteudo_ministrado=conteudo,
+                observacoes=observacoes
+            )
+            connection.execute(stmt)
+            trans.commit()
+            return jsonify({'message': 'Registro salvo com sucesso!'})
+        except Exception as e:
+            trans.rollback()
+            logger.error(f"Erro ao salvar entrada no diário: {e}", exc_info=True)
+            return jsonify({'message': f'Erro no servidor: {e}'}), 500
+
+
+@professor_bp.route('/api/diario/entradas')
+@login_required
+def buscar_entradas_diario():
+    """Busca entradas existentes no diário para uma turma/disciplina."""
+    turma_id = request.args.get('turma_id')
+    disciplina_id = request.args.get('disciplina_id')
+
+    if not turma_id or not disciplina_id:
+        return jsonify({'error': 'ID da Turma e da Disciplina são obrigatórios'}), 400
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        query = select(diario_de_classe_table).where(
+            diario_de_classe_table.c.turma_id == turma_id,
+            diario_de_classe_table.c.disciplina_id == disciplina_id
+        ).order_by(diario_de_classe_table.c.data_aula.desc())
+
+        resultados = connection.execute(query).mappings().all()
+        # Converte as datas para string no formato ISO para ser serializável em JSON
+        entradas = [
+            {**row, 'data_aula': row['data_aula'].isoformat()}
+            for row in resultados
+        ]
+
+    return jsonify(entradas)
+
 

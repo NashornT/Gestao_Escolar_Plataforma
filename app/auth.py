@@ -2,8 +2,8 @@ from flask import Blueprint, render_template, redirect, url_for, request, flash
 from app.models import User
 from app import db
 from flask_login import login_user, logout_user, login_required, current_user
-from app import turma_table, disciplina_table, professor_table, professores_turmas_disciplinas_table
 from datetime import datetime
+from app.audit_log import log_action
 
 # A correção está na linha abaixo.
 # Apontamos para a pasta 'templates' na raiz do projeto.
@@ -13,10 +13,9 @@ auth_bp = Blueprint('auth', __name__, template_folder='../templates')
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
-        # Se o usuário já está logado, redireciona para o painel correto
         if current_user.role == 'student':
             return redirect(url_for('aluno.painel'))
-        else:  # Admin e Professor
+        else:
             return redirect(url_for('main_bp.get_files'))
 
     if request.method == 'POST':
@@ -34,10 +33,12 @@ def login():
         user.last_login = datetime.utcnow()
         db.session.commit()
 
-        # Após o login, verifica o papel do usuário e o envia para a página certa
+        # Log de auditoria
+        log_action('LOGIN', table_affected='user', record_id=user.id)
+
         if user.role == 'student':
             return redirect(url_for('aluno.painel'))
-        else:  # Admin e Professor vão para o painel principal
+        else:
             return redirect(url_for('main_bp.get_files'))
 
     return render_template('auth/login.html')
