@@ -861,3 +861,88 @@ def api_criar_turma():
             trans.rollback()
             logger.error(f"Erro ao criar turma: {e}", exc_info=True)
             return jsonify({'message': f'Erro no servidor: {e}'}), 500
+
+
+@main_bp.route('/gerenciar_disciplinas')
+@login_required
+def gerenciar_disciplinas():
+    if not current_user.is_admin:
+        flash('Acesso negado.', 'danger')
+        return redirect(url_for('main_bp.get_files'))
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        query = select(disciplina_table).order_by(disciplina_table.c.disciplina)
+        disciplinas = connection.execute(query).mappings().all()
+
+    return render_template(
+        'main/gerenciar_disciplinas.html',
+        disciplinas=disciplinas,
+        username=current_user.username,
+        user_role=current_user.role
+    )
+
+
+@main_bp.route('/api/disciplinas', methods=['POST'])
+@login_required
+def api_criar_disciplina():
+    if not current_user.is_admin:
+        return jsonify({'message': 'Acesso negado.'}), 403
+
+    data = request.get_json()
+    nome_disciplina = data.get('disciplina')
+    if not nome_disciplina:
+        return jsonify({'message': 'O nome da disciplina é obrigatório.'}), 400
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        trans = connection.begin()
+        try:
+            # Encontra o maior disciplina_id existente para criar o próximo
+            max_id = connection.execute(select(func.max(disciplina_table.c.disciplina_id))).scalar() or 0
+            novo_id = max_id + 1
+
+            stmt = insert(disciplina_table).values(
+                disciplina_id=novo_id,
+                disciplina=nome_disciplina,
+                fk_disciplina=novo_id
+            )
+            connection.execute(stmt)
+            trans.commit()
+            log_action('CREATE', 'materias', record_id=novo_id, new_value={'disciplina': nome_disciplina})
+            return jsonify({'message': 'Disciplina criada com sucesso!'}), 201
+        except Exception as e:
+            trans.rollback()
+            return jsonify({'message': f'Erro ao criar disciplina: {e}'}), 500
+
+
+@main_bp.route('/api/disciplinas/<int:disciplina_id>', methods=['PUT', 'DELETE'])
+@login_required
+def api_modificar_disciplina(disciplina_id):
+    if not current_user.is_admin:
+        return jsonify({'message': 'Acesso negado.'}), 403
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        trans = connection.begin()
+        try:
+            if request.method == 'PUT':
+                data = request.get_json()
+                novo_nome = data.get('disciplina')
+                stmt = update(disciplina_table).where(disciplina_table.c.disciplina_id == disciplina_id).values(
+                    disciplina=novo_nome)
+                connection.execute(stmt)
+                message = 'Disciplina atualizada com sucesso!'
+                log_action('UPDATE', 'materias', record_id=disciplina_id, new_value={'disciplina': novo_nome})
+
+            elif request.method == 'DELETE':
+                stmt = delete(disciplina_table).where(disciplina_table.c.disciplina_id == disciplina_id)
+                connection.execute(stmt)
+                message = 'Disciplina excluída com sucesso!'
+                log_action('DELETE', 'materias', record_id=disciplina_id)
+
+            trans.commit()
+            return jsonify({'message': message})
+        except Exception as e:
+            trans.rollback()
+            return jsonify({'message': f'Erro ao processar a solicitação: {e}'}), 500
