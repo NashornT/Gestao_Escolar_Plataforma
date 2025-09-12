@@ -25,9 +25,6 @@
             <div class="collapse navbar-collapse" id="navbarNav">
                  <ul class="navbar-nav me-auto mb-2 mb-lg-0">
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('main_bp.baixar_dados') }}">Baixar Dados Gerais</a>
-                    </li>
-                    <li class="nav-item">
                          <a class="nav-link {% if request.endpoint == 'main_bp.listar_usuarios' %}active{% endif %}" href="{{ url_for('main_bp.listar_usuarios') }}">Gerenciar Usuários</a>
                     </li>
                     <li class="nav-item">
@@ -137,6 +134,13 @@
                                 <button class="btn btn-success" type="submit">Enviar</button>
                             </div>
                         </form>
+
+                       <hr>
+
+                        <h5 class="card-title mt-3">Exportar Dados</h5>
+                        <p>Baixar um relatório completo com todos os dados acadêmicos do sistema.</p>
+                        <a href="{{ url_for('main_bp.baixar_dados') }}" class="btn btn-info w-100">Baixar Dados Gerais</a>
+
                     </div>
                 </div>
             </div>
