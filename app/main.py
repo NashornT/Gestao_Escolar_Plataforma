@@ -1005,3 +1005,32 @@ def api_aluno_detalhes(aluno_id):
             # Campos de responsável foram removidos
         }
         return jsonify(detalhes)
+
+
+@main_bp.route('/visualizador_logs')
+@login_required
+def visualizador_logs():
+        if not current_user.is_admin:
+            flash('Acesso negado.', 'danger')
+            return redirect(url_for('main_bp.get_files'))
+
+        log_content = "Arquivo de log não encontrado."
+        try:
+            # O arquivo 'app.log' estará na raiz do projeto
+            log_file_path = os.path.join(current_app.root_path, '..', 'app.log')
+            with open(log_file_path, 'r', encoding='utf-8') as f:
+                # Lê as últimas 1000 linhas para não sobrecarregar
+                lines = f.readlines()
+                log_content = "".join(lines[-1000:])
+        except FileNotFoundError:
+            logger.warning("O arquivo app.log não foi encontrado para visualização.")
+        except Exception as e:
+            logger.error(f"Erro ao ler o arquivo de log: {e}", exc_info=True)
+            log_content = f"Erro ao ler o arquivo de log: {e}"
+
+        return render_template(
+            'main/visualizador_logs.html',
+            log_content=log_content,
+            username=current_user.username,
+            user_role=current_user.role
+        )

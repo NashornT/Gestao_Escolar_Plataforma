@@ -4,7 +4,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
 from flask_socketio import SocketIO
 from methods.logging_config import setup_logging
-from sqlalchemy import Table, MetaData, Column, Integer, String, DateTime, Text, Date
+from sqlalchemy import (Table, MetaData, Column, Integer, String, DateTime, Text, Date, ForeignKey, BOOLEAN, BIGINT)
 import logging
 
 db = SQLAlchemy()
@@ -12,7 +12,6 @@ login_manager = LoginManager()
 socketio = SocketIO()
 logger = logging.getLogger(__name__)
 
-# Declaração de todas as variáveis de tabela
 turma_table = None
 disciplina_table = None
 aluno_table = None
@@ -41,21 +40,20 @@ def create_app():
     setup_logging()
 
     global turma_table, disciplina_table, aluno_table, nota_table, alunos_turma_table, professor_table, \
-        professores_turmas_disciplinas_table, anuncio_table, material_aula_table, comentario_anuncio_table, notificacao_table, \
-        diario_de_classe_table
+        professores_turmas_disciplinas_table, anuncio_table, material_aula_table, comentario_anuncio_table, \
+        notificacao_table, audit_log_table, diario_de_classe_table
 
     with app.app_context():
         try:
-            logger.info("Tentando refletir as tabelas dos bancos de dados...")
+            logger.info("Verificando e definindo as tabelas dos bancos de dados...")
 
-            # Reflete a tabela do banco de auditoria
+            # --- BANCO DE DADOS DE AUDITORIA E USUÁRIOS (PADRÃO) ---
             audit_engine = db.get_engine()
 
-            # Definição explícita da tabela de auditoria para garantir sua criação
             audit_log_table = Table('audit_log', db.metadata,
-                                    Column('id', Integer, primary_key=True),
+                                    Column('id', Integer, primary_key=True, autoincrement=True),
                                     Column('data_acao', DateTime, default=datetime.now),
-                                    Column('usuario_id', Integer, nullable=True),  # Permitir nulo para ações do sistema
+                                    Column('usuario_id', Integer, ForeignKey('user.id'), nullable=True),
                                     Column('acao', String(20)),
                                     Column('tabela_afetada', String(100)),
                                     Column('registro_afetado_id', String(255), nullable=True),
@@ -63,43 +61,102 @@ def create_app():
                                     Column('valor_novo', Text, nullable=True)
                                     )
 
-            notificacao_table = Table('notificacoes', db.metadata, autoload_with=audit_engine)
-            db.metadata.create_all(bind=audit_engine, tables=[audit_log_table])
+            notificacao_table = Table('notificacoes', db.metadata,
+                                      Column('notificacao_id', Integer, primary_key=True, autoincrement=True),
+                                      Column('user_id_destino', Integer, ForeignKey('user.id', ondelete='CASCADE'),
+                                             nullable=False),
+                                      Column('mensagem', String(255), nullable=False),
+                                      Column('link', String(255)),
+                                      Column('data_criacao', DateTime, nullable=False),
+                                      Column('lida', BOOLEAN, nullable=False, default=False)
+                                      )
+            # Cria as tabelas de auditoria e notificação se não existirem
+            db.metadata.create_all(bind=audit_engine, tables=[audit_log_table, notificacao_table])
 
-
-            # Inicializa o módulo de log com a tabela
             from app import audit_log
             audit_log.audit_log_table = audit_log_table
 
-            # Reflete as tabelas do banco acadêmico
+            # --- BANCO DE DADOS ACADÊMICO ---
             academic_engine = db.get_engine(bind='academic')
             academic_metadata = MetaData()
-            turma_table = Table('turmas', academic_metadata, autoload_with=academic_engine)
-            disciplina_table = Table('materias', academic_metadata, autoload_with=academic_engine)
-            aluno_table = Table('alunos', academic_metadata, autoload_with=academic_engine)
-            nota_table = Table('notas', academic_metadata, autoload_with=academic_engine)
-            alunos_turma_table = Table('alunos_turma', academic_metadata, autoload_with=academic_engine)
-            professor_table = Table('professores', academic_metadata, autoload_with=academic_engine)
-            professores_turmas_disciplinas_table = Table('professores_turmas_disciplinas', academic_metadata,
-                                                         autoload_with=academic_engine)
-            anuncio_table = Table('anuncios', academic_metadata, autoload_with=academic_engine)
-            material_aula_table = Table('materiais_aula', academic_metadata, autoload_with=academic_engine)
-            comentario_anuncio_table = Table('comentarios_anuncios', academic_metadata, autoload_with=academic_engine)
 
+            # Definição das tabelas que vêm do ETL (com estrutura básica)
+            professor_table = Table('professores', academic_metadata,
+                                    Column('professor_id', String(255), primary_key=True),
+                                    autoload_with=academic_engine, extend_existing=True)
+            turma_table = Table('turmas', academic_metadata, Column('turma_id', String(255), primary_key=True),
+                                autoload_with=academic_engine, extend_existing=True)
+            disciplina_table = Table('materias', academic_metadata, Column('disciplina_id', BIGINT, primary_key=True),
+                                     autoload_with=academic_engine, extend_existing=True)
+            aluno_table = Table('alunos', academic_metadata, Column('aluno_id', String(255), primary_key=True),
+                                autoload_with=academic_engine, extend_existing=True)
+
+            # Definição explícita das tabelas de relacionamento
+            anuncio_table = Table('anuncios', academic_metadata,
+                                  Column('anuncio_id', Integer, primary_key=True, autoincrement=True),
+                                  Column('professor_id', String(255), ForeignKey('professores.professor_id'),
+                                         nullable=False),
+                                  Column('titulo', String(255), nullable=False),
+                                  Column('conteudo', Text, nullable=False),
+                                  Column('data_postagem', DateTime, nullable=False)
+                                  )
+
+            material_aula_table = Table('materiais_aula', academic_metadata,
+                                        Column('material_id', Integer, primary_key=True, autoincrement=True),
+                                        Column('professor_id', String(255), ForeignKey('professores.professor_id'),
+                                               nullable=False),
+                                        Column('turma_id', String(255), ForeignKey('turmas.turma_id'), nullable=False),
+                                        Column('disciplina_id', BIGINT, ForeignKey('materias.disciplina_id'),
+                                               nullable=False),
+                                        Column('titulo', String(255), nullable=False),
+                                        Column('descricao', Text),
+                                        Column('link_arquivo', String(255), nullable=False),
+                                        Column('data_upload', DateTime, nullable=False)
+                                        )
+
+            professores_turmas_disciplinas_table = Table('professores_turmas_disciplinas', academic_metadata,
+                                                         Column('id', Integer, primary_key=True, autoincrement=True),
+                                                         Column('professor_id', String(255),
+                                                                ForeignKey('professores.professor_id'), nullable=False),
+                                                         Column('turma_id', String(255), ForeignKey('turmas.turma_id'),
+                                                                nullable=False),
+                                                         Column('disciplina_id', BIGINT,
+                                                                ForeignKey('materias.disciplina_id'), nullable=False),
+                                                         Column('ano_letivo', String(4), nullable=False)
+                                                         )
+
+            comentario_anuncio_table = Table('comentarios_anuncios', academic_metadata,
+                                             Column('comentario_id', Integer, primary_key=True, autoincrement=True),
+                                             Column('anuncio_id', Integer,
+                                                    ForeignKey('anuncios.anuncio_id', ondelete='CASCADE'),
+                                                    nullable=False),
+                                             Column('user_id', Integer, nullable=False),
+                                             Column('nome_usuario', String(255), nullable=False),
+                                             Column('conteudo', Text, nullable=False),
+                                             Column('data_comentario', DateTime, nullable=False)
+                                             )
 
             diario_de_classe_table = Table('diario_de_classe', academic_metadata,
-                                            Column('diario_id', Integer, primary_key=True),
-                                            Column('professor_id', String(255)),
-                                            Column('turma_id', String(255)),
-                                            Column('disciplina_id', Integer),
-                                            Column('data_aula', Date),
-                                            Column('conteudo_ministrado', Text),
-                                            Column('observacoes', Text, nullable=True),
-                                            autoload_with=academic_engine)
+                                           Column('diario_id', Integer, primary_key=True, autoincrement=True),
+                                           Column('professor_id', String(255), nullable=False),
+                                           Column('turma_id', String(255), nullable=False),
+                                           Column('disciplina_id', Integer, nullable=False),
+                                           Column('data_aula', Date, nullable=False),
+                                           Column('conteudo_ministrado', Text, nullable=False),
+                                           Column('observacoes', Text, nullable=True)
+                                           )
 
-            logger.info("Tabelas refletidas com sucesso.")
+            # Carrega as tabelas restantes que dependem do ETL
+            nota_table = Table('notas', academic_metadata, autoload_with=academic_engine, extend_existing=True)
+            alunos_turma_table = Table('alunos_turma', academic_metadata, autoload_with=academic_engine,
+                                       extend_existing=True)
+
+            # Cria APENAS as tabelas que foram definidas explicitamente (as de relacionamento) se não existirem
+            academic_metadata.create_all(bind=academic_engine)
+            logger.info("Tabelas definidas e verificadas com sucesso.")
+
         except Exception as e:
-            logger.error(f"Falha CRÍTICA ao refletir as tabelas: {e}", exc_info=True)
+            logger.error(f"Falha CRÍTICA ao definir as tabelas: {e}", exc_info=True)
 
     # Registra os Blueprints
     from app.auth import auth_bp
