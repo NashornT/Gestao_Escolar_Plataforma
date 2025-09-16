@@ -672,31 +672,30 @@ def api_alunos_por_turma_status():
 
     academic_engine = db.get_engine(bind='academic')
     with academic_engine.connect() as connection:
-        # Alunos já matriculados na turma
+        # Alunos já matriculados na turma (adicionado status)
         query_matriculados = select(
             aluno_table.c.aluno_id,
-            aluno_table.c.aluno
+            aluno_table.c.aluno,
+            aluno_table.c.status
         ).join(
             alunos_turma_table, aluno_table.c.aluno_id == alunos_turma_table.c.aluno_id
         ).where(alunos_turma_table.c.turma_id == turma_id).order_by(aluno_table.c.aluno)
         matriculados = connection.execute(query_matriculados).mappings().all()
 
-        # Alunos ainda não matriculados em nenhuma turma
-        query_matriculados_ids = select(alunos_turma_table.c.aluno_id)
-        matriculados_ids = [row.aluno_id for row in connection.execute(query_matriculados_ids).all()]
-
+        # Alunos ainda não matriculados (adicionado status)
+        subquery_matriculados_ids = select(alunos_turma_table.c.aluno_id).distinct()
         query_disponiveis = select(
             aluno_table.c.aluno_id,
-            aluno_table.c.aluno
-        ).where(aluno_table.c.aluno_id.notin_(matriculados_ids)).order_by(aluno_table.c.aluno)
-
-        # Correção aqui: Adicione .mappings().all()
+            aluno_table.c.aluno,
+            aluno_table.c.status
+        ).where(aluno_table.c.aluno_id.notin_(subquery_matriculados_ids)).order_by(aluno_table.c.aluno)
         disponiveis = connection.execute(query_disponiveis).mappings().all()
 
     return jsonify({
         'matriculados': [dict(row) for row in matriculados],
         'disponiveis': [dict(row) for row in disponiveis]
     })
+
 
 @main_bp.route('/api/atualizar_matricula', methods=['POST'])
 @login_required
@@ -942,3 +941,67 @@ def api_modificar_disciplina(disciplina_id):
         except Exception as e:
             trans.rollback()
             return jsonify({'message': f'Erro ao processar a solicitação: {e}'}), 500
+
+
+@main_bp.route('/informacoes_alunos')
+@login_required
+def informacoes_alunos():
+    if not current_user.is_admin:
+        flash('Acesso negado.', 'danger')
+        return redirect(url_for('main_bp.get_files'))
+
+    search_term = request.args.get('busca', '')
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        query = select(aluno_table).order_by(aluno_table.c.aluno)
+        if search_term:
+            query = query.where(aluno_table.c.aluno.ilike(f'%{search_term}%'))
+        alunos = connection.execute(query).mappings().all()
+
+    return render_template('main/informacoes_alunos.html',
+                           alunos=alunos,
+                           search_term=search_term,
+                           username=current_user.username,
+                           user_role=current_user.role)
+
+
+@main_bp.route('/api/aluno/<aluno_id>/detalhes')
+@login_required
+def api_aluno_detalhes(aluno_id):
+    if not current_user.is_admin:
+        return jsonify({'error': 'Acesso negado'}), 403
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        # Busca dados do aluno
+        aluno_info = connection.execute(
+            select(aluno_table).where(aluno_table.c.aluno_id == aluno_id)).mappings().first()
+        if not aluno_info:
+            return jsonify({'error': 'Aluno não encontrado'}), 404
+
+        # Busca dados da turma
+        turma_info = connection.execute(
+            select(turma_table.c.turma, turma_table.c.turno, turma_table.c.turma_id)
+            .join(alunos_turma_table, turma_table.c.turma_id == alunos_turma_table.c.turma_id)
+            .where(alunos_turma_table.c.aluno_id == aluno_id)
+        ).mappings().first()
+
+        # Busca disciplinas da turma (Query Corrigida)
+        disciplinas = []
+        if turma_info:
+            disciplinas_query = select(disciplina_table.c.disciplina).select_from(
+                disciplina_table.join(professores_turmas_disciplinas_table,
+                                      disciplina_table.c.disciplina_id == professores_turmas_disciplinas_table.c.disciplina_id)
+            ).where(professores_turmas_disciplinas_table.c.turma_id == turma_info.turma_id).order_by(
+                disciplina_table.c.disciplina)
+
+            disciplinas = connection.execute(disciplinas_query).scalars().all()
+
+        detalhes = {
+            "nome": aluno_info.aluno,
+            "status": aluno_info.status,
+            "turma": f"{turma_info.turma} - {turma_info.turno}" if turma_info else "Não matriculado",
+            "disciplinas": disciplinas
+            # Campos de responsável foram removidos
+        }
+        return jsonify(detalhes)
