@@ -282,6 +282,12 @@ def criar_usuario():
             new_user.set_password(password)
             session_app.add(new_user)
 
+            if is_student and aluno_id_selecionado:
+                stmt_ativar_aluno = update(aluno_table).where(
+                    aluno_table.c.aluno_id == aluno_id_selecionado
+                ).values(status='Ativo')
+                conn_academic.execute(stmt_ativar_aluno)
+
             if is_professor:
                 if not nome_completo_prof:
                     raise ValueError("O campo 'Nome Completo' é obrigatório para professores.")
@@ -672,7 +678,7 @@ def api_alunos_por_turma_status():
 
     academic_engine = db.get_engine(bind='academic')
     with academic_engine.connect() as connection:
-        # Alunos já matriculados na turma (adicionado status)
+        # Alunos já matriculados na turma (consulta permanece a mesma)
         query_matriculados = select(
             aluno_table.c.aluno_id,
             aluno_table.c.aluno,
@@ -682,13 +688,14 @@ def api_alunos_por_turma_status():
         ).where(alunos_turma_table.c.turma_id == turma_id).order_by(aluno_table.c.aluno)
         matriculados = connection.execute(query_matriculados).mappings().all()
 
-        # Alunos ainda não matriculados (adicionado status)
-        subquery_matriculados_ids = select(alunos_turma_table.c.aluno_id).distinct()
+        j = aluno_table.outerjoin(alunos_turma_table, aluno_table.c.aluno_id == alunos_turma_table.c.aluno_id)
         query_disponiveis = select(
             aluno_table.c.aluno_id,
             aluno_table.c.aluno,
             aluno_table.c.status
-        ).where(aluno_table.c.aluno_id.notin_(subquery_matriculados_ids)).order_by(aluno_table.c.aluno)
+        ).select_from(j).where(
+            alunos_turma_table.c.turma_id == None
+        ).order_by(aluno_table.c.aluno)
         disponiveis = connection.execute(query_disponiveis).mappings().all()
 
     return jsonify({
@@ -1010,27 +1017,26 @@ def api_aluno_detalhes(aluno_id):
 @main_bp.route('/visualizador_logs')
 @login_required
 def visualizador_logs():
-        if not current_user.is_admin:
-            flash('Acesso negado.', 'danger')
-            return redirect(url_for('main_bp.get_files'))
+    if not current_user.is_admin:
+        flash('Acesso negado.', 'danger')
+        return redirect(url_for('main_bp.get_files'))
 
-        log_content = "Arquivo de log não encontrado."
-        try:
-            # O arquivo 'app.log' estará na raiz do projeto
-            log_file_path = os.path.join(current_app.root_path, '..', 'app.log')
-            with open(log_file_path, 'r', encoding='utf-8') as f:
-                # Lê as últimas 1000 linhas para não sobrecarregar
-                lines = f.readlines()
-                log_content = "".join(lines[-1000:])
-        except FileNotFoundError:
-            logger.warning("O arquivo app.log não foi encontrado para visualização.")
-        except Exception as e:
-            logger.error(f"Erro ao ler o arquivo de log: {e}", exc_info=True)
-            log_content = f"Erro ao ler o arquivo de log: {e}"
+    log_content = "Arquivo de log não encontrado."
+    try:
+        log_file_path = os.path.join(current_app.root_path, '..', 'app.log')
+        # --- CORREÇÃO AQUI ---
+        with open(log_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            lines = f.readlines()
+            log_content = "".join(lines[-1000:])
+    except FileNotFoundError:
+        logger.warning("O arquivo app.log não foi encontrado para visualização.")
+    except Exception as e:
+        logger.error(f"Erro ao ler o arquivo de log: {e}", exc_info=True)
+        log_content = f"Erro ao ler o arquivo de log: {e}"
 
-        return render_template(
-            'main/visualizador_logs.html',
-            log_content=log_content,
-            username=current_user.username,
-            user_role=current_user.role
-        )
+    return render_template(
+        'main/visualizador_logs.html',
+        log_content=log_content,
+        username=current_user.username,
+        user_role=current_user.role
+    )

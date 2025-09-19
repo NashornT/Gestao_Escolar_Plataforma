@@ -29,15 +29,17 @@ class Students:
                 shift = shift.replace("Turno:", "").strip() if shift else None
                 shifts_dict.update({student: shift})
 
+                unique_identifier = f"{student}{student_class}{self.student_year}"
+
                 students.append({
-                    "aluno_id": generate_uuid(student),  # Gera um ID único
+                    "aluno_id": generate_uuid(unique_identifier),  # Gera um ID único
                     "aluno": student.replace("Aluno(a):", "").strip(),
                     "matricula": "NOT IMPLEMENTED",
                     "resonsavel_id": "NOT IMPLEMENTED",
                     "data_nascimento": "NOT IMPLEMENTED",
                     "endereco": "NOT IMPLEMENTED",
                     "sexo": "NOT IMPLEMENTED",
-                    "status": "Ativo"
+                    "status": "Inativo"
                 })
 
         return students, shifts_dict

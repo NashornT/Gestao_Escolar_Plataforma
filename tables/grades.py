@@ -2,13 +2,13 @@ import uuid
 from methods.generate_uuid import generate_uuid
 
 class Grades:
-    def __init__(self, dataframe, disciplines_id, student_year, disciplines_columns, file_type):
+    def __init__(self, dataframe, disciplines_id, student_year, disciplines_columns, file_type, aluno_id_map):
         self.dataframe = dataframe
         self.disciplines_id = disciplines_id
         self.student_year = student_year
         self.disciplines_columns = disciplines_columns
         self.file_type = file_type
-
+        self.aluno_id_map = aluno_id_map # Recebe o mapa de IDs
 
     def __normalize_numbers(self, numbers_list):
         """Normaliza as notas, removendo valores inválidos e garantindo consistência."""
@@ -30,6 +30,7 @@ class Grades:
         """
         grades = list()
         df = self.dataframe
+
         for student in df.index:
             tot_absences = 0.0
             if isinstance(df['FALTAS'][student], list):
@@ -39,6 +40,7 @@ class Grades:
                 else:
                     tot_absences = absences[-1] if isinstance(absences, list) else absences
 
+            aluno_id = self.aluno_id_map.get(student.replace("Aluno(a):", "").strip())
             for discipline in self.disciplines_columns:
                 if discipline in df.columns:
                     len_grades = len(df.loc[student, discipline])
@@ -92,7 +94,7 @@ class Grades:
 
                     grades.append({
                             "nota_id": nota_id,
-                            "aluno_id": generate_uuid(str(student)),
+                            "aluno_id": aluno_id,
                             "ano_letivo": self.student_year,
                             "disciplina_id": self.disciplines_id[discipline],
                             "nota_1_bimestre": grades_dict.get("notas")[0] if len(grades_dict.get("notas")) > 0 else 0.0,
