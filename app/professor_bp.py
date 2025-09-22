@@ -4,7 +4,7 @@ from sqlalchemy.sql import select, update, insert, join, distinct
 from app import db, logger
 from app import (turma_table, disciplina_table, aluno_table, nota_table, alunos_turma_table, \
     professores_turmas_disciplinas_table, anuncio_table, material_aula_table, comentario_anuncio_table,
-                 notificacao_table, socketio, diario_de_classe_table)
+                 notificacao_table, socketio, diario_de_classe_table, presenca_table)
 from datetime import datetime
 from werkzeug.utils import secure_filename
 from app.models import User
@@ -302,14 +302,11 @@ def gerenciar_anuncios():
 @professor_bp.route('/materiais', methods=['GET', 'POST'])
 @login_required
 def gerenciar_materiais():
-    # ===== INÍCIO DA CORREÇÃO =====
-    # Verifica se as tabelas essenciais foram carregadas. Se não, mostra um erro claro.
     if material_aula_table is None or turma_table is None or disciplina_table is None:
         flash(
             'Erro crítico: Uma ou mais tabelas acadêmicas não foram encontradas no banco de dados. Verifique a conexão e os nomes das tabelas.',
             'danger')
         return redirect(url_for('main_bp.get_files'))
-    # ===== FIM DA CORREÇÃO =====
 
     professor_id_logado = current_user.professor_id
     academic_engine = db.get_engine(bind='academic')
@@ -482,7 +479,6 @@ def api_dados_graficos():
 
     academic_engine = db.get_engine(bind='academic')
     with academic_engine.connect() as connection:
-        # 1. Obter notas da turma na disciplina
         j = join(nota_table, alunos_turma_table, nota_table.c.aluno_id == alunos_turma_table.c.aluno_id)
         query_notas = select(
             nota_table.c.nota_1_bimestre_final,
@@ -502,13 +498,10 @@ def api_dados_graficos():
                 'distribuicao_notas': [0, 0, 0, 0, 0]
             })
 
-        # 2. Calcular médias por bimestre
         soma_b1, count_b1 = 0, 0
         soma_b2, count_b2 = 0, 0
         soma_b3, count_b3 = 0, 0
         soma_b4, count_b4 = 0, 0
-
-        todas_as_medias_finais = []
 
         for row in resultados:
             if row.nota_1_bimestre_final is not None:
@@ -529,7 +522,6 @@ def api_dados_graficos():
         media_b3 = round(soma_b3 / count_b3, 1) if count_b3 > 0 else 0
         media_b4 = round(soma_b4 / count_b4, 1) if count_b4 > 0 else 0
 
-        # 3. Calcular distribuição de notas (média final)
         query_medias_finais = select(nota_table.c.media_final).select_from(j).where(
             alunos_turma_table.c.turma_id == turma_id,
             nota_table.c.disciplina_id == disciplina_id,
@@ -640,20 +632,18 @@ def api_nota_aluno():
 def salvar_nota_individual():
     try:
         nota_id = request.form.get('nota_id')
-        turma_id = request.form.get('turma_id')  # Adicionado para contexto
+        turma_id = request.form.get('turma_id')
 
         if not nota_id:
             flash('Erro: ID da nota não encontrado. Não foi possível salvar.', 'danger')
             return redirect(url_for('professor_bp.lancar_nota_individual_page'))
 
-        # Pega as notas do formulário, tratando valores vazios como None
         n1 = request.form.get('nota_1_bimestre_final', default=None, type=float)
         n2 = request.form.get('nota_2_bimestre_final', default=None, type=float)
         n3 = request.form.get('nota_3_bimestre_final', default=None, type=float)
         n4 = request.form.get('nota_4_bimestre_final', default=None, type=float)
         faltas = request.form.get('total_faltas', default=None, type=int)
 
-        # Calcula a nota total e a média final
         notas_validas = [n for n in [n1, n2, n3, n4] if n is not None]
         nota_total = sum(notas_validas)
         media_final = nota_total / len(notas_validas) if notas_validas else 0
@@ -688,7 +678,6 @@ def salvar_nota_individual():
         logger.error(f"Erro no processamento do formulário de nota individual: {e}", exc_info=True)
         flash('Ocorreu um erro inesperado ao processar sua solicitação.', 'danger')
 
-    # Redireciona de volta para a página, mantendo o filtro da turma selecionado
     return redirect(url_for('professor_bp.lancar_nota_individual_page', turma_id=turma_id))
 
 
@@ -703,7 +692,6 @@ def api_historico_aluno_disciplina():
 
     academic_engine = db.get_engine(bind='academic')
     with academic_engine.connect() as connection:
-        # A query busca o registro de nota completo
         query_historico = select(nota_table).where(
             nota_table.c.aluno_id == aluno_id,
             nota_table.c.disciplina_id == disciplina_id
@@ -754,6 +742,7 @@ def salvar_entrada_diario():
     data_aula_str = data.get('data_aula')
     conteudo = data.get('conteudo_ministrado')
     observacoes = data.get('observacoes', '')
+    presencas = data.get('presencas', {})
 
     if not all([turma_id, disciplina_id, data_aula_str, conteudo]):
         return jsonify({'message': 'Todos os campos obrigatórios devem ser preenchidos.'}), 400
@@ -767,7 +756,7 @@ def salvar_entrada_diario():
     with academic_engine.connect() as connection:
         trans = connection.begin()
         try:
-            stmt = insert(diario_de_classe_table).values(
+            stmt_diario = insert(diario_de_classe_table).values(
                 professor_id=current_user.professor_id,
                 turma_id=turma_id,
                 disciplina_id=disciplina_id,
@@ -775,9 +764,22 @@ def salvar_entrada_diario():
                 conteudo_ministrado=conteudo,
                 observacoes=observacoes
             )
-            connection.execute(stmt)
+            result = connection.execute(stmt_diario)
+            diario_id = result.inserted_primary_key[0]
+
+            if presencas and diario_id:
+                registros_presenca = []
+                for aluno_id, status in presencas.items():
+                    registros_presenca.append({
+                        'diario_id': diario_id,
+                        'aluno_id': aluno_id,
+                        'status_presenca': status  # CORREÇÃO AQUI
+                    })
+                if registros_presenca:
+                    connection.execute(insert(presenca_table), registros_presenca)
+
             trans.commit()
-            return jsonify({'message': 'Registro salvo com sucesso!'})
+            return jsonify({'message': 'Registro de aula e presenças salvo com sucesso!'})
         except Exception as e:
             trans.rollback()
             logger.error(f"Erro ao salvar entrada no diário: {e}", exc_info=True)
@@ -787,7 +789,6 @@ def salvar_entrada_diario():
 @professor_bp.route('/api/diario/entradas')
 @login_required
 def buscar_entradas_diario():
-    """Busca entradas existentes no diário para uma turma/disciplina."""
     turma_id = request.args.get('turma_id')
     disciplina_id = request.args.get('disciplina_id')
 
@@ -802,7 +803,6 @@ def buscar_entradas_diario():
         ).order_by(diario_de_classe_table.c.data_aula.desc())
 
         resultados = connection.execute(query).mappings().all()
-        # Converte as datas para string no formato ISO para ser serializável em JSON
         entradas = [
             {**row, 'data_aula': row['data_aula'].isoformat()}
             for row in resultados
@@ -811,3 +811,27 @@ def buscar_entradas_diario():
     return jsonify(entradas)
 
 
+@professor_bp.route('/api/diario/detalhes/<int:diario_id>')
+@login_required
+def detalhes_diario(diario_id):
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        query_diario = select(diario_de_classe_table).where(diario_de_classe_table.c.diario_id == diario_id)
+        diario = connection.execute(query_diario).mappings().first()
+
+        if not diario:
+            return jsonify({'error': 'Registro de aula não encontrado.'}), 404
+
+        j = join(presenca_table, aluno_table, presenca_table.c.aluno_id == aluno_table.c.aluno_id)
+        query_ausentes = select(aluno_table.c.aluno).select_from(j).where(
+            presenca_table.c.diario_id == diario_id,
+            presenca_table.c.status_presenca == 'Ausente' # CORREÇÃO AQUI
+        ).order_by(aluno_table.c.aluno)
+
+        alunos_ausentes = connection.execute(query_ausentes).scalars().all()
+
+        return jsonify({
+            'conteudo': diario.conteudo_ministrado,
+            'observacoes': diario.observacoes,
+            'ausentes': alunos_ausentes
+        })
