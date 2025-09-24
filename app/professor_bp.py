@@ -101,7 +101,6 @@ def api_dados_turma():
                 registro_nota = connection.execute(query_nota).first()
 
                 if registro_nota:
-                    # CORREÇÃO: Busca as notas FINAIS para exibir na tabela
                     notas_aluno = {
                         'nota_id': registro_nota.nota_id,
                         'bimestres': {
@@ -146,7 +145,6 @@ def api_atualizar_dados():
 
     academic_engine = db.get_engine(bind='academic')
     with academic_engine.connect() as connection:
-        # Agrupa todas as atualizações por nota_id para otimizar
         updates_por_nota = {}
         for item in data['dados']:
             nota_id = item.get('nota_id')
@@ -157,7 +155,6 @@ def api_atualizar_dados():
         trans = connection.begin()
         try:
             for nota_id, campos_para_atualizar in updates_por_nota.items():
-                # 1. Busca o registro atual da nota
                 registro_atual = connection.execute(
                     select(nota_table).where(nota_table.c.nota_id == nota_id)
                 ).first()
@@ -174,7 +171,6 @@ def api_atualizar_dados():
 
                 valores_finais = dict(registro_atual)
 
-                # 2. Atualiza os valores com os dados recebidos
                 for campo, valor_str in campos_para_atualizar.items():
                     valor = None
                     if valor_str not in [None, '']:
@@ -189,7 +185,6 @@ def api_atualizar_dados():
                             valor = int(numeric_value)
                     valores_finais[campo] = valor
 
-                # 3. Recalcula a média e o total
                 notas_validas = [n for n in [
                     valores_finais['nota_1_bimestre_final'], valores_finais['nota_2_bimestre_final'],
                     valores_finais['nota_3_bimestre_final'], valores_finais['nota_4_bimestre_final']
@@ -201,7 +196,6 @@ def api_atualizar_dados():
                 valores_finais['nota_total'] = nota_total
                 valores_finais['media_final'] = round(media_final, 2)
 
-                # 4. Executa o update com todos os campos (originais + atualizados + calculados)
                 stmt = update(nota_table).where(nota_table.c.nota_id == nota_id).values(valores_finais)
                 connection.execute(stmt)
 
@@ -252,7 +246,6 @@ def gerenciar_anuncios():
                     record_id=novo_anuncio_id,
                     new_value={'titulo': titulo}
                 )
-
 
                 trans_academic.commit()
 
@@ -443,7 +436,6 @@ def excluir_anuncio(anuncio_id):
                 flash('Anúncio não encontrado ou você não tem permissão para excluí-lo.', 'danger')
                 return redirect(url_for('professor_bp.gerenciar_anuncios'))
 
-
             log_action(
                 action='DELETE',
                 table_affected='anuncios',
@@ -465,12 +457,9 @@ def excluir_anuncio(anuncio_id):
     return redirect(url_for('professor_bp.gerenciar_anuncios'))
 
 
-# ===== NOVAS ROTAS PARA EDIÇÃO DE ANÚNCIOS =====
-
 @professor_bp.route('/api/anuncio/<int:anuncio_id>')
 @login_required
 def api_get_anuncio(anuncio_id):
-    """Retorna os dados de um anúncio específico em JSON."""
     academic_engine = db.get_engine(bind='academic')
     with academic_engine.connect() as connection:
         query = select(anuncio_table).where(
@@ -486,7 +475,6 @@ def api_get_anuncio(anuncio_id):
 @professor_bp.route('/anuncios/editar/<int:anuncio_id>', methods=['POST'])
 @login_required
 def editar_anuncio(anuncio_id):
-    """Processa a edição de um anúncio."""
     titulo = request.form.get('titulo')
     conteudo = request.form.get('conteudo')
 
@@ -498,7 +486,6 @@ def editar_anuncio(anuncio_id):
     with academic_engine.connect() as connection:
         trans = connection.begin()
         try:
-            # 1. Busca o valor antigo para o log de auditoria
             query_anuncio_antigo = select(anuncio_table.c.titulo, anuncio_table.c.conteudo).where(
                 anuncio_table.c.anuncio_id == anuncio_id,
                 anuncio_table.c.professor_id == current_user.professor_id
@@ -509,7 +496,6 @@ def editar_anuncio(anuncio_id):
                 trans.rollback()
                 return redirect(url_for('professor_bp.gerenciar_anuncios'))
 
-            # 2. Atualiza o anúncio
             stmt = update(anuncio_table).where(
                 anuncio_table.c.anuncio_id == anuncio_id
             ).values(
@@ -518,7 +504,6 @@ def editar_anuncio(anuncio_id):
             )
             connection.execute(stmt)
 
-            # 3. Registra a ação de auditoria
             log_action(
                 action='UPDATE',
                 table_affected='anuncios',
@@ -536,6 +521,76 @@ def editar_anuncio(anuncio_id):
             flash(f'Erro ao atualizar o anúncio: {e}', 'danger')
 
     return redirect(url_for('professor_bp.gerenciar_anuncios'))
+
+
+# ===== NOVAS ROTAS PARA EDIÇÃO DE MATERIAIS =====
+
+@professor_bp.route('/api/material/<int:material_id>')
+@login_required
+def api_get_material(material_id):
+    """Retorna os dados de um material específico em JSON."""
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        query = select(material_aula_table).where(
+            material_aula_table.c.material_id == material_id,
+            material_aula_table.c.professor_id == current_user.professor_id
+        )
+        material = connection.execute(query).mappings().first()
+        if not material:
+            return jsonify({'error': 'Material não encontrado ou não autorizado'}), 404
+        return jsonify(dict(material))
+
+
+@professor_bp.route('/materiais/editar/<int:material_id>', methods=['POST'])
+@login_required
+def editar_material(material_id):
+    """Processa a edição dos detalhes de um material."""
+    titulo = request.form.get('titulo')
+    descricao = request.form.get('descricao')
+
+    if not titulo:
+        flash('O título é obrigatório.', 'danger')
+        return redirect(url_for('professor_bp.gerenciar_materiais'))
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        trans = connection.begin()
+        try:
+            query_material_antigo = select(material_aula_table.c.titulo, material_aula_table.c.descricao).where(
+                material_aula_table.c.material_id == material_id,
+                material_aula_table.c.professor_id == current_user.professor_id
+            )
+            material_antigo = connection.execute(query_material_antigo).first()
+            if not material_antigo:
+                flash('Material não encontrado ou você não tem permissão para editá-lo.', 'danger')
+                trans.rollback()
+                return redirect(url_for('professor_bp.gerenciar_materiais'))
+
+            stmt = update(material_aula_table).where(
+                material_aula_table.c.material_id == material_id
+            ).values(
+                titulo=titulo,
+                descricao=descricao
+            )
+            connection.execute(stmt)
+
+            log_action(
+                action='UPDATE',
+                table_affected='materiais_aula',
+                record_id=material_id,
+                old_value={'titulo': material_antigo.titulo, 'descricao': material_antigo.descricao},
+                new_value={'titulo': titulo, 'descricao': descricao}
+            )
+
+            trans.commit()
+            flash('Material atualizado com sucesso!', 'success')
+
+        except Exception as e:
+            trans.rollback()
+            logger.error(f"Erro ao editar material: {e}", exc_info=True)
+            flash(f'Erro ao atualizar o material: {e}', 'danger')
+
+    return redirect(url_for('professor_bp.gerenciar_materiais'))
 
 # =======================================================
 
