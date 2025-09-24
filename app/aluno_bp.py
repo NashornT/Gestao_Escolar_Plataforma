@@ -1,7 +1,9 @@
 from flask import Blueprint, render_template, flash, redirect, url_for, current_app, send_from_directory, send_file, \
     jsonify
 from flask_login import login_required, current_user
-from app import db, logger
+from sqlalchemy import desc
+
+from app import db, logger, aluno_table, professor_table
 from app import (anuncio_table, material_aula_table, alunos_turma_table, turma_table, disciplina_table, nota_table,
                  comentario_anuncio_table, professores_turmas_disciplinas_table)
 from sqlalchemy.sql import select, join
@@ -31,62 +33,59 @@ def painel():
     with academic_engine.connect() as connection:
         aluno_id_logado = current_user.aluno_id
         if aluno_id_logado:
-            query_turma_aluno = select(alunos_turma_table.c.turma_id).where(
-                alunos_turma_table.c.aluno_id == aluno_id_logado)
-            resultado_turma = connection.execute(query_turma_aluno).first()
+            j_turma = join(aluno_table, alunos_turma_table, aluno_table.c.aluno_id == alunos_turma_table.c.aluno_id)
+            j_turma = join(j_turma, turma_table, alunos_turma_table.c.turma_id == turma_table.c.turma_id)
+            query_info = select(
+                aluno_table.c.aluno,
+                turma_table.c.turma,
+                turma_table.c.turno,
+                alunos_turma_table.c.turma_id
+            ).select_from(j_turma).where(aluno_table.c.aluno_id == aluno_id_logado)
+            info_aluno = connection.execute(query_info).first()
 
-            if resultado_turma:
-                turma_id_aluno = resultado_turma.turma_id
+            # ===== INÍCIO DA CORREÇÃO =====
+            # 2. Se o aluno pertence a uma turma, busca os materiais correspondentes
+            if info_aluno and info_aluno.turma_id:
+                j_materiais = join(material_aula_table, disciplina_table,
+                                   material_aula_table.c.disciplina_id == disciplina_table.c.disciplina_id)
+                j_materiais = join(j_materiais, professor_table,
+                                   material_aula_table.c.professor_id == professor_table.c.professor_id)
 
-                j_anuncios = anuncio_table.outerjoin(
-                    comentario_anuncio_table,
-                    anuncio_table.c.anuncio_id == comentario_anuncio_table.c.anuncio_id
-                ).join(
-                    professores_turmas_disciplinas_table,
-                    anuncio_table.c.professor_id == professores_turmas_disciplinas_table.c.professor_id
-                )
+                query_materiais = select(
+                    material_aula_table,
+                    disciplina_table.c.disciplina,
+                    professor_table.c.nome.label('nome_professor')
+                ).select_from(j_materiais).where(
+                    material_aula_table.c.turma_id == info_aluno.turma_id
+                ).order_by(desc(material_aula_table.c.data_upload))
 
-                query = select(
-                    anuncio_table,
-                    comentario_anuncio_table
-                ).select_from(j_anuncios).where(
-                    professores_turmas_disciplinas_table.c.turma_id == turma_id_aluno
-                ).order_by(
-                    anuncio_table.c.data_postagem.desc(),
-                    comentario_anuncio_table.c.data_comentario.asc()
-                )
+                materiais_turma = connection.execute(query_materiais).all()
+            # ===== FIM DA CORREÇÃO =====
 
-                resultados = connection.execute(query).mappings().all()
-                anuncios_dict = {}
-                for row in resultados:
-                    anuncio_id = row['anuncio_id']
-                    if anuncio_id not in anuncios_dict:
-                        anuncios_dict[anuncio_id] = {
-                            'anuncio': {
-                                'anuncio_id': row['anuncio_id'],
-                                'titulo': row['titulo'],
-                                'conteudo': row['conteudo'],
-                                'data_postagem': row['data_postagem']
-                            },
-                            'comentarios': []
-                        }
+            # 3. Busca os anúncios (lógica existente)
+            j_anuncios = join(anuncio_table, professor_table,
+                              anuncio_table.c.professor_id == professor_table.c.professor_id)
+            query_anuncios = select(
+                anuncio_table,
+                professor_table.c.nome.label('nome_professor')
+            ).select_from(j_anuncios).order_by(desc(anuncio_table.c.data_postagem))
+            anuncios_publicados = connection.execute(query_anuncios).all()
 
-                    if row['comentario_id'] is not None:
-                        anuncios_dict[anuncio_id]['comentarios'].append({
-                            'nome_usuario': row['nome_usuario'],
-                            'conteudo': row['comentarios_anuncios_conteudo'],
-                            'data_comentario': row['data_comentario']
-                        })
+            for anuncio in anuncios_publicados:
+                query_comentarios = select(comentario_anuncio_table).where(
+                    comentario_anuncio_table.c.anuncio_id == anuncio.anuncio_id
+                ).order_by(comentario_anuncio_table.c.data_comentario.asc())
+                comentarios = connection.execute(query_comentarios).all()
+                anuncios_data.append({'anuncio': anuncio, 'comentarios': comentarios})
 
-                anuncios_data = list(anuncios_dict.values())
-
-    return render_template(
-        'painel.html',
-        username=current_user.username,
-        anuncios_data=anuncios_data,
-        materiais=materiais_turma,
-        turma_info=info_turma_aluno
-    )
+        return render_template(
+            'aluno/painel.html',
+            username=current_user.username,
+            user_role=current_user.role,
+            anuncios_data=anuncios_data,
+            materiais=materiais_turma,
+            dados_aluno=info_aluno
+        )
 
 
 @aluno_bp.route('/materiais/<path:filename>')
