@@ -201,7 +201,60 @@ document.addEventListener('DOMContentLoaded', function() {
             console.error('Erro:', error);
         }
     });
-});
+}
+   const socket = io();
+        const notificationBell = document.getElementById('notificationBell');
+        const notificationCount = document.getElementById('notificationCount');
+        const notificationList = document.getElementById('notificationList');
+
+        socket.on('connect', function() {
+            socket.emit('join', { room: `user_{{ current_user.id }}` });
+        });
+
+        function fetchNotifications() {
+            fetch('/notificacoes/buscar')
+                .then(response => response.json())
+                .then(data => {
+                    updateNotificationUI(data.count, data.notificacoes);
+                });
+        }
+
+        function updateNotificationUI(count, notifications) {
+            if (count > 0) {
+                notificationCount.textContent = count;
+                notificationCount.style.display = 'block';
+            } else {
+                notificationCount.style.display = 'none';
+            }
+            notificationList.innerHTML = '';
+            if (notifications && notifications.length > 0) {
+                notifications.forEach(notif => {
+                    const listItem = `<li><a class="dropdown-item" href="${notif.link}">${notif.mensagem}</a></li>`;
+                    notificationList.innerHTML += listItem;
+                });
+            } else {
+                notificationList.innerHTML = '<li><span class="dropdown-item-text">Nenhuma nova notificação</span></li>';
+            }
+        }
+
+        notificationBell.addEventListener('click', function() {
+            if (notificationCount.style.display !== 'none') {
+                fetch('/notificacoes/marcar-como-lida', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            notificationCount.style.display = 'none';
+                        }
+                    });
+            }
+        });
+
+        socket.on('nova_notificacao', function(data) {
+            fetchNotifications();
+        });
+
+        fetchNotifications();
+    });
 </script>
 
 </body>
