@@ -5,7 +5,6 @@ from flask_login import login_user, logout_user, login_required, current_user
 from datetime import datetime
 from app.audit_log import log_action
 
-# A correção está na linha abaixo.
 # Apontamos para a pasta 'templates' na raiz do projeto.
 auth_bp = Blueprint('auth', __name__, template_folder='../templates')
 
