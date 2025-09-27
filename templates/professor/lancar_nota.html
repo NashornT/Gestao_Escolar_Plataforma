@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Lançamento de Nota Individual</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #2c3e50; color: #ecf0f1; }
+        .card { max-width: 800px; margin: 2rem auto; }
+        .card-header { font-weight: bold; background-color: #3498db; }
+        .hidden { display: none; }
+        .loader { border: 5px solid #f3f3f3; border-radius: 50%; border-top: 5px solid #3498db; width: 40px; height: 40px; animation: spin 1.5s linear infinite; margin: 2rem auto; }
+        #historyIcon { cursor: pointer; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('main_bp.get_files') }}">Gestão Escolar</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('main_bp.get_files') }}">Início</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('professor_bp.gerenciar_notas') }}">Gerenciar Notas</a></li>
+                    <li class="nav-item"><a class="nav-link active" aria-current="page" href="{{ url_for('professor_bp.lancar_nota_individual_page') }}">Lançamento Individual</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('professor_bp.gerenciar_anuncios') }}">Gerenciar Anúncios</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('professor_bp.gerenciar_materiais') }}">Adicionar Material</a></li>
+                    <li class="nav-item"><a class="nav-link" aria-current="page" href="{{ url_for('professor_bp.diario_de_classe') }}">Diário de Classe</a></li>
+                </ul>
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <span class="nav-link">Bem-vindo, {{ username }} ({{ user_role }})</span>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('account.mudar_senha') }}">Mudar Senha</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link btn btn-danger text-white" href="{{ url_for('auth.logout') }}">Sair</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        <div id="alert-placeholder"></div>
+        <div class="card bg-dark text-white">
+            <div class="card-header">
+                <h2>Lançamento de Nota Individual</h2>
+            </div>
+            <div class="card-body">
+                <div class="row g-3 align-items-end mb-4">
+                    <div class="col-md-4">
+                        <label for="turmaSelect" class="form-label">1. Selecione a Turma</label>
+                        <select id="turmaSelect" class="form-select bg-dark text-white">
+                            <option selected disabled value="">Selecione...</option>
+                            {% for turma_item in turmas %}
+                                <option value="{{ turma_item.turma_id }}">{{ turma_item.turma }} - {{ turma_item.turno }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label for="disciplinaSelect" class="form-label">2. Selecione a Disciplina</label>
+                        <select id="disciplinaSelect" class="form-select bg-dark text-white" disabled>
+                            <option selected disabled value="">Aguardando turma...</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label for="alunoSelect" class="form-label d-flex justify-content-between align-items-center">
+                            <span>3. Selecione o Aluno</span>
+                            <span id="historyIcon" class="hidden text-info" title="Ver Histórico do Aluno" data-bs-toggle="modal" data-bs-target="#historicoModal">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-bar-chart-line-fill" viewBox="0 0 16 16">
+                                  <path d="M11 2a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v12h.5a.5.5 0 0 1 0 1H.5a.5.5 0 0 1 0-1H1v-3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v3h1V7a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v7h1V2z"/>
+                                </svg>
+                            </span>
+                        </label>
+                        <select id="alunoSelect" class="form-select bg-dark text-white" disabled>
+                            <option selected disabled value="">Aguardando turma...</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div id="loader" class="loader hidden"></div>
+
+                <form id="notaForm" class="hidden" action="{{ url_for('professor_bp.salvar_nota_individual') }}" method="POST">
+                    <hr>
+                    <h4 id="formTitle">Lançar Notas para: </h4>
+                    <div class="row">
+                        <div class="col-md-3 mb-3">
+                            <label for="nota_1_bimestre_final" class="form-label">Nota Final 1º Bim</label>
+                            <input type="number" step="0.1" min="0" max="10" class="form-control" id="nota_1_bimestre_final" name="nota_1_bimestre_final">
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label for="nota_2_bimestre_final" class="form-label">Nota Final 2º Bim</label>
+                            <input type="number" step="0.1" min="0" max="10" class="form-control" id="nota_2_bimestre_final" name="nota_2_bimestre_final">
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label for="nota_3_bimestre_final" class="form-label">Nota Final 3º Bim</label>
+                            <input type="number" step="0.1" min="0" max="10" class="form-control" id="nota_3_bimestre_final" name="nota_3_bimestre_final">
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label for="nota_4_bimestre_final" class="form-label">Nota Final 4º Bim</label>
+                            <input type="number" step="0.1" min="0" max="10" class="form-control" id="nota_4_bimestre_final" name="nota_4_bimestre_final">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-3 mb-3">
+                            <label for="total_faltas" class="form-label">Total de Faltas</label>
+                            <input type="number" min="0" class="form-control" id="total_faltas" name="total_faltas">
+                        </div>
+                    </div>
+                    <input type="hidden" name="nota_id" id="nota_id">
+                    <input type="hidden" name="turma_id" id="turma_id_hidden">
+                    <button type="submit" class="btn btn-success float-end">Salvar Notas do Aluno</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="historicoModal" tabindex="-1" aria-labelledby="historicoModalLabel" aria-hidden="true">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content bg-dark text-white">
+          <div class="modal-header">
+            <h5 class="modal-title" id="historicoModalLabel">Histórico do Aluno</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <h6 id="historicoAlunoNome"></h6>
+            <p id="historicoDisciplinaNome"></p>
+            <div id="historicoLoader" class="loader hidden"></div>
+            <div id="historicoContent"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const turmaSelect = document.getElementById('turmaSelect');
+        const disciplinaSelect = document.getElementById('disciplinaSelect');
+        const alunoSelect = document.getElementById('alunoSelect');
+        const loader = document.getElementById('loader');
+        const notaForm = document.getElementById('notaForm');
+        const formTitle = document.getElementById('formTitle');
+        const historyIcon = document.getElementById('historyIcon');
+        const historicoLoader = document.getElementById('historicoLoader');
+        const historicoContent = document.getElementById('historicoContent');
+
+        function formatarValor(valor) {
+            if (valor === null || valor === '' || isNaN(parseFloat(valor))) {
+                return '';
+            }
+            const numero = parseFloat(valor);
+            return numero % 1 === 0 ? numero.toFixed(0) : numero.toFixed(1);
+        }
+
+        async function handleResponse(response) {
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.message || 'Ocorreu um erro na requisição.');
+            }
+            return response.json();
+        }
+
+        turmaSelect.addEventListener('change', async function() {
+            const turmaId = this.value;
+            resetSelect(disciplinaSelect, "Carregando disciplinas...");
+            resetSelect(alunoSelect, "Aguardando disciplina...");
+            notaForm.classList.add('hidden');
+            historyIcon.classList.add('hidden');
+
+            const disciplinas = await fetch(`/professor/api/disciplinas_por_turma?turma_id=${turmaId}`).then(handleResponse);
+            populateSelect(disciplinaSelect, disciplinas, 'disciplina', 'disciplina_id', "Selecione a disciplina...");
+
+            const alunos = await fetch(`/professor/api/alunos_por_turma?turma_id=${turmaId}`).then(handleResponse);
+            populateSelect(alunoSelect, alunos, 'aluno', 'aluno_id', "Selecione o aluno...");
+        });
+
+        alunoSelect.addEventListener('change', fetchNotaAluno);
+        disciplinaSelect.addEventListener('change', fetchNotaAluno);
+        historyIcon.addEventListener('click', fetchHistoricoAluno);
+
+        async function fetchNotaAluno() {
+            const alunoId = alunoSelect.value;
+            const disciplinaId = disciplinaSelect.value;
+            const turmaId = turmaSelect.value;
+
+            if (alunoSelect.value && disciplinaSelect.value) {
+                historyIcon.classList.remove('hidden');
+            } else {
+                historyIcon.classList.add('hidden');
+            }
+
+            if (!alunoId || !disciplinaId || !turmaId) {
+                notaForm.classList.add('hidden');
+                return;
+            }
+
+            loader.classList.remove('hidden');
+            notaForm.classList.add('hidden');
+
+            try {
+                const url = `/professor/api/nota_aluno?aluno_id=${alunoId}&disciplina_id=${disciplinaId}&turma_id=${turmaId}`;
+                const notaData = await fetch(url).then(handleResponse);
+                populateForm(notaData);
+            } catch (error) {
+                showAlert(error.message, 'danger');
+            } finally {
+                loader.classList.add('hidden');
+            }
+        }
+
+        async function fetchHistoricoAluno() {
+            const alunoId = alunoSelect.value;
+            const disciplinaId = disciplinaSelect.value;
+            if (!alunoId || !disciplinaId) return;
+
+            historicoLoader.classList.remove('hidden');
+            historicoContent.innerHTML = '';
+            document.getElementById('historicoAlunoNome').textContent = `Aluno: ${alunoSelect.options[alunoSelect.selectedIndex].text}`;
+            document.getElementById('historicoDisciplinaNome').textContent = `Disciplina: ${disciplinaSelect.options[disciplinaSelect.selectedIndex].text}`;
+
+            try {
+                const url = `/professor/api/historico_aluno_disciplina?aluno_id=${alunoId}&disciplina_id=${disciplinaId}`;
+                const data = await fetch(url).then(handleResponse);
+                renderizarHistorico(data);
+            } catch (error) {
+                historicoContent.innerHTML = `<div class="alert alert-danger">${error.message}</div>`;
+            } finally {
+                historicoLoader.classList.add('hidden');
+            }
+        }
+
+        function renderizarHistorico(data) {
+            const historicoHTML = `
+                <table class="table table-dark table-striped">
+                    <thead>
+                        <tr>
+                            <th>Bimestre</th>
+                            <th>Nota</th>
+                            <th>Recuperação</th>
+                            <th>Nota Final</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>1º Bimestre</td><td>${formatarValor(data.nota_1_bimestre) || '-'}</td><td>${formatarValor(data.nota_1_bimestre_recuperacao) || '-'}</td><td><strong>${formatarValor(data.nota_1_bimestre_final) || '-'}</strong></td></tr>
+                        <tr><td>2º Bimestre</td><td>${formatarValor(data.nota_2_bimestre) || '-'}</td><td>${formatarValor(data.nota_2_bimestre_recuperacao) || '-'}</td><td><strong>${formatarValor(data.nota_2_bimestre_final) || '-'}</strong></td></tr>
+                        <tr><td>3º Bimestre</td><td>${formatarValor(data.nota_3_bimestre) || '-'}</td><td>${formatarValor(data.nota_3_bimestre_recuperacao) || '-'}</td><td><strong>${formatarValor(data.nota_3_bimestre_final) || '-'}</strong></td></tr>
+                        <tr><td>4º Bimestre</td><td>${formatarValor(data.nota_4_bimestre) || '-'}</td><td>${formatarValor(data.nota_4_bimestre_recuperacao) || '-'}</td><td><strong>${formatarValor(data.nota_4_bimestre_final) || '-'}</strong></td></tr>
+                    </tbody>
+                    <tfoot>
+                        <tr class="fw-bold"><td colspan="3" class="text-end">Média Final Anual:</td><td>${formatarValor(data.media_final) || '-'}</td></tr>
+                        <tr class="fw-bold"><td colspan="3" class="text-end">Total de Faltas:</td><td>${formatarValor(data.total_faltas) || '-'}</td></tr>
+                    </tfoot>
+                </table>
+            `;
+            historicoContent.innerHTML = historicoHTML;
+        }
+
+        function populateForm(data) {
+            const alunoNome = alunoSelect.options[alunoSelect.selectedIndex].text;
+            formTitle.textContent = `Lançar Notas para: ${alunoNome}`;
+            document.getElementById('nota_1_bimestre_final').value = formatarValor(data.nota_1_bimestre_final);
+            document.getElementById('nota_2_bimestre_final').value = formatarValor(data.nota_2_bimestre_final);
+            document.getElementById('nota_3_bimestre_final').value = formatarValor(data.nota_3_bimestre_final);
+            document.getElementById('nota_4_bimestre_final').value = formatarValor(data.nota_4_bimestre_final);
+            document.getElementById('total_faltas').value = formatarValor(data.total_faltas);
+            document.getElementById('nota_id').value = data.nota_id;
+            document.getElementById('turma_id_hidden').value = turmaSelect.value;
+            notaForm.classList.remove('hidden');
+        }
+
+        function resetSelect(selectElement, defaultText) {
+            selectElement.innerHTML = `<option selected disabled value="">${defaultText}</option>`;
+            selectElement.disabled = true;
+        }
+
+        function populateSelect(selectElement, data, textKey, valueKey, defaultText) {
+            selectElement.innerHTML = `<option selected disabled value="">${defaultText}</option>`;
+            data.forEach(item => {
+                selectElement.innerHTML += `<option value="${item[valueKey]}">${item[textKey]}</option>`;
+            });
+            selectElement.disabled = false;
+        }
+
+        function showAlert(message, type) {
+            const placeholder = document.getElementById('alert-placeholder');
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = `<div class="alert alert-${type} alert-dismissible fade show" role="alert"><div>${message}</div><button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button></div>`;
+            placeholder.append(wrapper);
+        }
+    }
+);
+    </script>
+</body>
+</html>
