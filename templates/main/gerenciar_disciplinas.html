@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Gerenciar Disciplinas - Gestão Escolar</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #2c3e50; color: #ecf0f1; }
+        .card { max-width: 800px; margin: 2rem auto; }
+        .card-header { font-weight: bold; background-color: #3498db; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('main_bp.get_files') }}">Gestão Escolar</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                 <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'main_bp.criar_turma' %}active{% endif %}" aria-current="page" href="{{ url_for('main_bp.criar_turma') }}">Criar Turma</a>
+                    </li>
+                    <li class="nav-item">
+                         <a class="nav-link {% if request.endpoint == 'main_bp.criar_usuario' %}active{% endif %}" href="{{ url_for('main_bp.criar_usuario') }}">Criar Usuário</a>
+                    </li>
+                    <li class="nav-item">
+                         <a class="nav-link {% if request.endpoint == 'main_bp.listar_usuarios' %}active{% endif %}" href="{{ url_for('main_bp.listar_usuarios') }}">Gerenciar Usuários</a>
+                    </li>
+                    <li class="nav-item">
+                         <a class="nav-link {% if request.endpoint == 'main_bp.gerenciar_disciplinas' %}active{% endif %}" aria-current="page" href="{{ url_for('main_bp.gerenciar_disciplinas') }}">Gerenciar Disciplinas</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'main_bp.gerenciar_matriculas' %}active{% endif %}" href="{{ url_for('main_bp.gerenciar_matriculas') }}">Matrículas</a>
+                    </li>
+                    <li class="nav-item">
+                         <a class="nav-link {% if request.endpoint == 'main_bp.informacoes_alunos' %}active{% endif %}" aria-current="page" href="{{ url_for('main_bp.informacoes_alunos') }}">Alunos</a>
+                    </li>
+                     <li class="nav-item">
+                         <a class="nav-link {% if request.endpoint == 'main_bp.relatorios' %}active{% endif %}" href="{{ url_for('main_bp.relatorios') }}">Relatórios</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'main_bp.auditoria' %}active{% endif %}" href="{{ url_for('main_bp.auditoria') }}">Auditoria</a>
+                    </li>
+                     <li class="nav-item">
+                         <a class="nav-link {% if request.endpoint == 'main_bp.visualizador_logs' %}active{% endif %}" aria-current="page" href="{{ url_for('main_bp.visualizador_logs') }}">Logs</a>
+                    </li>
+                </ul>
+                <ul class="navbar-nav ms-auto d-flex align-items-center">
+                    <li class="nav-item dropdown">
+                        <a class="nav-link" href="#" id="notificationBell" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <span class="position-relative">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" class="bi bi-bell-fill" viewBox="0 0 16 16"><path d="M8 16a2 2 0 0 0 2-2H6a2 2 0 0 0 2 2zm.995-14.901a1 1 0 1 0-1.99 0A5.002 5.002 0 0 0 3 6c0 1.098-.5 6-2 7h14c-1.5-1-2-5.902-2-7 0-2.42-1.72-4.44-4.005-4.901z"/></svg>
+                                <span id="notificationCount" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="display: none;"></span>
+                            </span>
+                        </a>
+                        <ul id="notificationList" class="dropdown-menu dropdown-menu-dark dropdown-menu-end" aria-labelledby="notificationBell"></ul>
+                    </li>
+                    <li class="nav-item">
+                        <span class="nav-link">Bem-vindo, {{ username }} ({{ user_role }})</span>
+                    </li>
+
+                    <li class="nav-item">
+                         <a class="nav-link" href="{{ url_for('account.mudar_senha') }}">Mudar Senha</a>
+                    </li>
+
+                    <li class="nav-item">
+                        <a class="nav-link btn btn-danger text-white" href="{{ url_for('auth.logout') }}">Sair</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+    <div class="container mt-4">
+        <div id="alert-placeholder"></div>
+        <div class="card bg-dark text-white">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h2>Gerenciar Disciplinas</h2>
+                <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#disciplinaModal" onclick="prepareCreateModal()">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-plus-circle-fill" viewBox="0 0 16 16"><path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zM8.5 4.5a.5.5 0 0 0-1 0v3h-3a.5.5 0 0 0 0 1h3v3a.5.5 0 0 0 1 0v-3h3a.5.5 0 0 0 0-1h-3v-3z"/></svg>
+                    Nova Disciplina
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-dark table-striped">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Nome da Disciplina</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for disciplina in disciplinas %}
+                            <tr>
+                                <td>{{ disciplina.disciplina_id }}</td>
+                                <td>{{ disciplina.disciplina }}</td>
+                                <td>
+                                    <button class="btn btn-warning btn-sm" onclick="prepareEditModal('{{ disciplina.disciplina_id }}', '{{ disciplina.disciplina }}')">Editar</button>
+                                    <button class="btn btn-danger btn-sm" onclick="deleteDisciplina('{{ disciplina.disciplina_id }}')">Excluir</button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="disciplinaModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content bg-dark text-white">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modalTitle"></h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="disciplinaForm">
+                        <input type="hidden" id="disciplinaId">
+                        <div class="mb-3">
+                            <label for="disciplinaNome" class="form-label">Nome da Disciplina</label>
+                            <input type="text" class="form-control" id="disciplinaNome" required>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-primary" onclick="saveDisciplina()">Salvar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const disciplinaModal = new bootstrap.Modal(document.getElementById('disciplinaModal'));
+
+        function prepareCreateModal() {
+            document.getElementById('disciplinaForm').reset();
+            document.getElementById('disciplinaId').value = '';
+            document.getElementById('modalTitle').textContent = 'Criar Nova Disciplina';
+        }
+
+        function prepareEditModal(id, nome) {
+            document.getElementById('disciplinaForm').reset();
+            document.getElementById('disciplinaId').value = id;
+            document.getElementById('disciplinaNome').value = nome;
+            document.getElementById('modalTitle').textContent = 'Editar Disciplina';
+            disciplinaModal.show();
+        }
+
+        async function saveDisciplina() {
+            const id = document.getElementById('disciplinaId').value;
+            const nome = document.getElementById('disciplinaNome').value;
+
+            if (!nome) {
+                showAlert('O nome da disciplina é obrigatório.', 'warning');
+                return;
+            }
+
+            const isEditing = id !== '';
+            const url = isEditing ? `/api/disciplinas/${id}` : '/api/disciplinas';
+            const method = isEditing ? 'PUT' : 'POST';
+
+            try {
+                const response = await fetch(url, {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ disciplina: nome })
+                });
+                const data = await handleResponse(response);
+                showAlert(data.message, 'success');
+                disciplinaModal.hide();
+                location.reload(); // Recarrega a página para ver as mudanças
+            } catch (error) {
+                showAlert(error.message, 'danger');
+            }
+        }
+
+        async function deleteDisciplina(id) {
+            if (!confirm('Tem certeza que deseja excluir esta disciplina? Esta ação não pode ser desfeita.')) {
+                return;
+            }
+            try {
+                const response = await fetch(`/api/disciplinas/${id}`, { method: 'DELETE' });
+                const data = await handleResponse(response);
+                showAlert(data.message, 'success');
+                location.reload();
+            } catch (error) {
+                showAlert(error.message, 'danger');
+            }
+        }
+
+        async function handleResponse(response) {
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.message || 'Ocorreu um erro na requisição.');
+            return data;
+        }
+
+        function showAlert(message, type) {
+            const placeholder = document.getElementById('alert-placeholder');
+            placeholder.innerHTML = `<div class="alert alert-${type} alert-dismissible fade show" role="alert">${message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+        }
+    </script>
+</body>
+</html>

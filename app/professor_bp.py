@@ -4,7 +4,7 @@ from sqlalchemy.sql import select, update, insert, join, distinct
 from app import db, logger
 from app import (turma_table, disciplina_table, aluno_table, nota_table, alunos_turma_table, \
     professores_turmas_disciplinas_table, anuncio_table, material_aula_table, comentario_anuncio_table,
-                 notificacao_table, socketio, diario_de_classe_table)
+                 notificacao_table, socketio, diario_de_classe_table, presenca_table)
 from datetime import datetime
 from werkzeug.utils import secure_filename
 from app.models import User
@@ -101,7 +101,6 @@ def api_dados_turma():
                 registro_nota = connection.execute(query_nota).first()
 
                 if registro_nota:
-                    # CORREÇÃO: Busca as notas FINAIS para exibir na tabela
                     notas_aluno = {
                         'nota_id': registro_nota.nota_id,
                         'bimestres': {
@@ -146,7 +145,6 @@ def api_atualizar_dados():
 
     academic_engine = db.get_engine(bind='academic')
     with academic_engine.connect() as connection:
-        # Agrupa todas as atualizações por nota_id para otimizar
         updates_por_nota = {}
         for item in data['dados']:
             nota_id = item.get('nota_id')
@@ -157,7 +155,6 @@ def api_atualizar_dados():
         trans = connection.begin()
         try:
             for nota_id, campos_para_atualizar in updates_por_nota.items():
-                # 1. Busca o registro atual da nota
                 registro_atual = connection.execute(
                     select(nota_table).where(nota_table.c.nota_id == nota_id)
                 ).first()
@@ -165,16 +162,15 @@ def api_atualizar_dados():
                     continue
 
                 old_values = {
-                    "nota_1_bimestre_final": registro_atual.get('nota_1_bimestre_final'),
-                    "nota_2_bimestre_final": registro_atual.get('nota_2_bimestre_final'),
-                    "nota_3_bimestre_final": registro_atual.get('nota_3_bimestre_final'),
-                    "nota_4_bimestre_final": registro_atual.get('nota_4_bimestre_final'),
-                    "total_faltas": registro_atual.get('total_faltas')
+                    "nota_1_bimestre_final": registro_atual.nota_1_bimestre_final,
+                    "nota_2_bimestre_final": registro_atual.nota_2_bimestre_final,
+                    "nota_3_bimestre_final": registro_atual.nota_3_bimestre_final,
+                    "nota_4_bimestre_final": registro_atual.nota_4_bimestre_final,
+                    "total_faltas": registro_atual.total_faltas
                 }
 
-                valores_finais = dict(registro_atual)
+                valores_finais = dict(registro_atual._mapping)
 
-                # 2. Atualiza os valores com os dados recebidos
                 for campo, valor_str in campos_para_atualizar.items():
                     valor = None
                     if valor_str not in [None, '']:
@@ -189,7 +185,6 @@ def api_atualizar_dados():
                             valor = int(numeric_value)
                     valores_finais[campo] = valor
 
-                # 3. Recalcula a média e o total
                 notas_validas = [n for n in [
                     valores_finais['nota_1_bimestre_final'], valores_finais['nota_2_bimestre_final'],
                     valores_finais['nota_3_bimestre_final'], valores_finais['nota_4_bimestre_final']
@@ -201,7 +196,6 @@ def api_atualizar_dados():
                 valores_finais['nota_total'] = nota_total
                 valores_finais['media_final'] = round(media_final, 2)
 
-                # 4. Executa o update com todos os campos (originais + atualizados + calculados)
                 stmt = update(nota_table).where(nota_table.c.nota_id == nota_id).values(valores_finais)
                 connection.execute(stmt)
 
@@ -253,7 +247,6 @@ def gerenciar_anuncios():
                     new_value={'titulo': titulo}
                 )
 
-
                 trans_academic.commit()
 
                 alunos = User.query.filter_by(role='student').all()
@@ -302,14 +295,11 @@ def gerenciar_anuncios():
 @professor_bp.route('/materiais', methods=['GET', 'POST'])
 @login_required
 def gerenciar_materiais():
-    # ===== INÍCIO DA CORREÇÃO =====
-    # Verifica se as tabelas essenciais foram carregadas. Se não, mostra um erro claro.
     if material_aula_table is None or turma_table is None or disciplina_table is None:
         flash(
             'Erro crítico: Uma ou mais tabelas acadêmicas não foram encontradas no banco de dados. Verifique a conexão e os nomes das tabelas.',
             'danger')
         return redirect(url_for('main_bp.get_files'))
-    # ===== FIM DA CORREÇÃO =====
 
     professor_id_logado = current_user.professor_id
     academic_engine = db.get_engine(bind='academic')
@@ -384,9 +374,6 @@ def gerenciar_materiais():
 @professor_bp.route('/materiais/<path:filename>')
 @login_required
 def download_material(filename):
-    """
-    Rota segura para servir os arquivos da pasta de uploads de materiais.
-    """
     materiais_directory = os.path.join(current_app.root_path, '..', 'uploads', 'materiais')
     return send_from_directory(directory=materiais_directory, path=filename)
 
@@ -449,7 +436,6 @@ def excluir_anuncio(anuncio_id):
                 flash('Anúncio não encontrado ou você não tem permissão para excluí-lo.', 'danger')
                 return redirect(url_for('professor_bp.gerenciar_anuncios'))
 
-
             log_action(
                 action='DELETE',
                 table_affected='anuncios',
@@ -471,6 +457,144 @@ def excluir_anuncio(anuncio_id):
     return redirect(url_for('professor_bp.gerenciar_anuncios'))
 
 
+@professor_bp.route('/api/anuncio/<int:anuncio_id>')
+@login_required
+def api_get_anuncio(anuncio_id):
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        query = select(anuncio_table).where(
+            anuncio_table.c.anuncio_id == anuncio_id,
+            anuncio_table.c.professor_id == current_user.professor_id
+        )
+        anuncio = connection.execute(query).mappings().first()
+        if not anuncio:
+            return jsonify({'error': 'Anúncio não encontrado ou não autorizado'}), 404
+        return jsonify(dict(anuncio))
+
+
+@professor_bp.route('/anuncios/editar/<int:anuncio_id>', methods=['POST'])
+@login_required
+def editar_anuncio(anuncio_id):
+    titulo = request.form.get('titulo')
+    conteudo = request.form.get('conteudo')
+
+    if not titulo or not conteudo:
+        flash('Título e conteúdo são obrigatórios.', 'danger')
+        return redirect(url_for('professor_bp.gerenciar_anuncios'))
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        trans = connection.begin()
+        try:
+            query_anuncio_antigo = select(anuncio_table.c.titulo, anuncio_table.c.conteudo).where(
+                anuncio_table.c.anuncio_id == anuncio_id,
+                anuncio_table.c.professor_id == current_user.professor_id
+            )
+            anuncio_antigo = connection.execute(query_anuncio_antigo).first()
+            if not anuncio_antigo:
+                flash('Anúncio não encontrado ou você não tem permissão para editá-lo.', 'danger')
+                trans.rollback()
+                return redirect(url_for('professor_bp.gerenciar_anuncios'))
+
+            stmt = update(anuncio_table).where(
+                anuncio_table.c.anuncio_id == anuncio_id
+            ).values(
+                titulo=titulo,
+                conteudo=conteudo
+            )
+            connection.execute(stmt)
+
+            log_action(
+                action='UPDATE',
+                table_affected='anuncios',
+                record_id=anuncio_id,
+                old_value={'titulo': anuncio_antigo.titulo, 'conteudo': anuncio_antigo.conteudo},
+                new_value={'titulo': titulo, 'conteudo': conteudo}
+            )
+
+            trans.commit()
+            flash('Anúncio atualizado com sucesso!', 'success')
+
+        except Exception as e:
+            trans.rollback()
+            logger.error(f"Erro ao editar anúncio: {e}", exc_info=True)
+            flash(f'Erro ao atualizar o anúncio: {e}', 'danger')
+
+    return redirect(url_for('professor_bp.gerenciar_anuncios'))
+
+
+# ===== NOVAS ROTAS PARA EDIÇÃO DE MATERIAIS =====
+
+@professor_bp.route('/api/material/<int:material_id>')
+@login_required
+def api_get_material(material_id):
+    """Retorna os dados de um material específico em JSON."""
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        query = select(material_aula_table).where(
+            material_aula_table.c.material_id == material_id,
+            material_aula_table.c.professor_id == current_user.professor_id
+        )
+        material = connection.execute(query).mappings().first()
+        if not material:
+            return jsonify({'error': 'Material não encontrado ou não autorizado'}), 404
+        return jsonify(dict(material))
+
+
+@professor_bp.route('/materiais/editar/<int:material_id>', methods=['POST'])
+@login_required
+def editar_material(material_id):
+    """Processa a edição dos detalhes de um material."""
+    titulo = request.form.get('titulo')
+    descricao = request.form.get('descricao')
+
+    if not titulo:
+        flash('O título é obrigatório.', 'danger')
+        return redirect(url_for('professor_bp.gerenciar_materiais'))
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        trans = connection.begin()
+        try:
+            query_material_antigo = select(material_aula_table.c.titulo, material_aula_table.c.descricao).where(
+                material_aula_table.c.material_id == material_id,
+                material_aula_table.c.professor_id == current_user.professor_id
+            )
+            material_antigo = connection.execute(query_material_antigo).first()
+            if not material_antigo:
+                flash('Material não encontrado ou você não tem permissão para editá-lo.', 'danger')
+                trans.rollback()
+                return redirect(url_for('professor_bp.gerenciar_materiais'))
+
+            stmt = update(material_aula_table).where(
+                material_aula_table.c.material_id == material_id
+            ).values(
+                titulo=titulo,
+                descricao=descricao
+            )
+            connection.execute(stmt)
+
+            log_action(
+                action='UPDATE',
+                table_affected='materiais_aula',
+                record_id=material_id,
+                old_value={'titulo': material_antigo.titulo, 'descricao': material_antigo.descricao},
+                new_value={'titulo': titulo, 'descricao': descricao}
+            )
+
+            trans.commit()
+            flash('Material atualizado com sucesso!', 'success')
+
+        except Exception as e:
+            trans.rollback()
+            logger.error(f"Erro ao editar material: {e}", exc_info=True)
+            flash(f'Erro ao atualizar o material: {e}', 'danger')
+
+    return redirect(url_for('professor_bp.gerenciar_materiais'))
+
+# =======================================================
+
+
 @professor_bp.route('/api/dados_graficos')
 @login_required
 def api_dados_graficos():
@@ -482,7 +606,6 @@ def api_dados_graficos():
 
     academic_engine = db.get_engine(bind='academic')
     with academic_engine.connect() as connection:
-        # 1. Obter notas da turma na disciplina
         j = join(nota_table, alunos_turma_table, nota_table.c.aluno_id == alunos_turma_table.c.aluno_id)
         query_notas = select(
             nota_table.c.nota_1_bimestre_final,
@@ -502,13 +625,10 @@ def api_dados_graficos():
                 'distribuicao_notas': [0, 0, 0, 0, 0]
             })
 
-        # 2. Calcular médias por bimestre
         soma_b1, count_b1 = 0, 0
         soma_b2, count_b2 = 0, 0
         soma_b3, count_b3 = 0, 0
         soma_b4, count_b4 = 0, 0
-
-        todas_as_medias_finais = []
 
         for row in resultados:
             if row.nota_1_bimestre_final is not None:
@@ -529,7 +649,6 @@ def api_dados_graficos():
         media_b3 = round(soma_b3 / count_b3, 1) if count_b3 > 0 else 0
         media_b4 = round(soma_b4 / count_b4, 1) if count_b4 > 0 else 0
 
-        # 3. Calcular distribuição de notas (média final)
         query_medias_finais = select(nota_table.c.media_final).select_from(j).where(
             alunos_turma_table.c.turma_id == turma_id,
             nota_table.c.disciplina_id == disciplina_id,
@@ -552,7 +671,6 @@ def api_dados_graficos():
 @professor_bp.route('/lancar-nota', methods=['GET'])
 @login_required
 def lancar_nota_individual_page():
-    # Esta rota apenas renderiza a página e carrega as turmas do professor
     professor_id_logado = current_user.professor_id
     turmas_atribuidas = []
     academic_engine = db.get_engine(bind='academic')
@@ -614,9 +732,7 @@ def api_nota_aluno():
         )
         nota = connection.execute(query_nota).mappings().first()
 
-        # Se o aluno ainda não tem um registro de nota para essa disciplina, cria um
         if not nota:
-            # Precisamos do ano letivo da turma para criar a nova entrada de nota
             turma_id = request.args.get('turma_id')
             query_ano_letivo = select(turma_table.c.ano_escolar).where(turma_table.c.turma_id == turma_id)
             ano_letivo = connection.execute(query_ano_letivo).scalar_one_or_none() or str(datetime.now().year)
@@ -629,7 +745,6 @@ def api_nota_aluno():
             connection.execute(insert(nota_table).values(nova_nota))
             connection.commit()
 
-            # Busca novamente para retornar o objeto completo
             nota = connection.execute(query_nota).mappings().first()
 
         return jsonify(dict(nota) if nota else {})
@@ -640,20 +755,18 @@ def api_nota_aluno():
 def salvar_nota_individual():
     try:
         nota_id = request.form.get('nota_id')
-        turma_id = request.form.get('turma_id')  # Adicionado para contexto
+        turma_id = request.form.get('turma_id')
 
         if not nota_id:
             flash('Erro: ID da nota não encontrado. Não foi possível salvar.', 'danger')
             return redirect(url_for('professor_bp.lancar_nota_individual_page'))
 
-        # Pega as notas do formulário, tratando valores vazios como None
         n1 = request.form.get('nota_1_bimestre_final', default=None, type=float)
         n2 = request.form.get('nota_2_bimestre_final', default=None, type=float)
         n3 = request.form.get('nota_3_bimestre_final', default=None, type=float)
         n4 = request.form.get('nota_4_bimestre_final', default=None, type=float)
         faltas = request.form.get('total_faltas', default=None, type=int)
 
-        # Calcula a nota total e a média final
         notas_validas = [n for n in [n1, n2, n3, n4] if n is not None]
         nota_total = sum(notas_validas)
         media_final = nota_total / len(notas_validas) if notas_validas else 0
@@ -688,7 +801,6 @@ def salvar_nota_individual():
         logger.error(f"Erro no processamento do formulário de nota individual: {e}", exc_info=True)
         flash('Ocorreu um erro inesperado ao processar sua solicitação.', 'danger')
 
-    # Redireciona de volta para a página, mantendo o filtro da turma selecionado
     return redirect(url_for('professor_bp.lancar_nota_individual_page', turma_id=turma_id))
 
 
@@ -703,7 +815,6 @@ def api_historico_aluno_disciplina():
 
     academic_engine = db.get_engine(bind='academic')
     with academic_engine.connect() as connection:
-        # A query busca o registro de nota completo
         query_historico = select(nota_table).where(
             nota_table.c.aluno_id == aluno_id,
             nota_table.c.disciplina_id == disciplina_id
@@ -720,9 +831,6 @@ def api_historico_aluno_disciplina():
 @professor_bp.route('/diario')
 @login_required
 def diario_de_classe():
-    """Renderiza a página do diário de classe."""
-    # A lógica para buscar as turmas atribuídas ao professor já existe
-    # em outras rotas e pode ser reutilizada aqui.
     professor_id_logado = current_user.professor_id
     turmas_atribuidas = []
     academic_engine = db.get_engine(bind='academic')
@@ -747,13 +855,13 @@ def diario_de_classe():
 @professor_bp.route('/api/diario/salvar', methods=['POST'])
 @login_required
 def salvar_entrada_diario():
-    """Salva uma nova entrada no diário de classe."""
     data = request.get_json()
     turma_id = data.get('turma_id')
     disciplina_id = data.get('disciplina_id')
     data_aula_str = data.get('data_aula')
     conteudo = data.get('conteudo_ministrado')
     observacoes = data.get('observacoes', '')
+    presencas = data.get('presencas', {})
 
     if not all([turma_id, disciplina_id, data_aula_str, conteudo]):
         return jsonify({'message': 'Todos os campos obrigatórios devem ser preenchidos.'}), 400
@@ -767,7 +875,7 @@ def salvar_entrada_diario():
     with academic_engine.connect() as connection:
         trans = connection.begin()
         try:
-            stmt = insert(diario_de_classe_table).values(
+            stmt_diario = insert(diario_de_classe_table).values(
                 professor_id=current_user.professor_id,
                 turma_id=turma_id,
                 disciplina_id=disciplina_id,
@@ -775,9 +883,22 @@ def salvar_entrada_diario():
                 conteudo_ministrado=conteudo,
                 observacoes=observacoes
             )
-            connection.execute(stmt)
+            result = connection.execute(stmt_diario)
+            diario_id = result.inserted_primary_key[0]
+
+            if presencas and diario_id:
+                registros_presenca = []
+                for aluno_id, status in presencas.items():
+                    registros_presenca.append({
+                        'diario_id': diario_id,
+                        'aluno_id': aluno_id,
+                        'status_presenca': status
+                    })
+                if registros_presenca:
+                    connection.execute(insert(presenca_table), registros_presenca)
+
             trans.commit()
-            return jsonify({'message': 'Registro salvo com sucesso!'})
+            return jsonify({'message': 'Registro de aula e presenças salvo com sucesso!'})
         except Exception as e:
             trans.rollback()
             logger.error(f"Erro ao salvar entrada no diário: {e}", exc_info=True)
@@ -787,7 +908,6 @@ def salvar_entrada_diario():
 @professor_bp.route('/api/diario/entradas')
 @login_required
 def buscar_entradas_diario():
-    """Busca entradas existentes no diário para uma turma/disciplina."""
     turma_id = request.args.get('turma_id')
     disciplina_id = request.args.get('disciplina_id')
 
@@ -802,7 +922,6 @@ def buscar_entradas_diario():
         ).order_by(diario_de_classe_table.c.data_aula.desc())
 
         resultados = connection.execute(query).mappings().all()
-        # Converte as datas para string no formato ISO para ser serializável em JSON
         entradas = [
             {**row, 'data_aula': row['data_aula'].isoformat()}
             for row in resultados
@@ -811,3 +930,27 @@ def buscar_entradas_diario():
     return jsonify(entradas)
 
 
+@professor_bp.route('/api/diario/detalhes/<int:diario_id>')
+@login_required
+def detalhes_diario(diario_id):
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        query_diario = select(diario_de_classe_table).where(diario_de_classe_table.c.diario_id == diario_id)
+        diario = connection.execute(query_diario).mappings().first()
+
+        if not diario:
+            return jsonify({'error': 'Registro de aula não encontrado.'}), 404
+
+        j = join(presenca_table, aluno_table, presenca_table.c.aluno_id == aluno_table.c.aluno_id)
+        query_ausentes = select(aluno_table.c.aluno).select_from(j).where(
+            presenca_table.c.diario_id == diario_id,
+            presenca_table.c.status_presenca == 'Ausente'
+        ).order_by(aluno_table.c.aluno)
+
+        alunos_ausentes = connection.execute(query_ausentes).scalars().all()
+
+        return jsonify({
+            'conteudo': diario.conteudo_ministrado,
+            'observacoes': diario.observacoes,
+            'ausentes': alunos_ausentes
+        })

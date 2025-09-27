@@ -11,40 +11,43 @@
     </style>
 </head>
 <body>
-   <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
         <div class="container-fluid">
             <a class="navbar-brand" href="{{ url_for('main_bp.get_files') }}">Gestão Escolar</a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                 <ul class="navbar-nav me-auto mb-2 mb-lg-0">
                     <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'main_bp.get_files' %}active{% endif %}" href="{{ url_for('main_bp.get_files') }}">Início</a>
+                        <a class="nav-link {% if request.endpoint == 'main_bp.criar_turma' %}active{% endif %}" aria-current="page" href="{{ url_for('main_bp.criar_turma') }}">Criar Turma</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('main_bp.baixar_dados') }}">Baixar Dados Gerais</a>
+                         <a class="nav-link {% if request.endpoint == 'main_bp.criar_usuario' %}active{% endif %}" href="{{ url_for('main_bp.criar_usuario') }}">Criar Usuário</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'main_bp.listar_usuarios' %}active{% endif %}" href="{{ url_for('main_bp.listar_usuarios') }}">Gerenciar Usuários</a>
+                         <a class="nav-link {% if request.endpoint == 'main_bp.listar_usuarios' %}active{% endif %}" href="{{ url_for('main_bp.listar_usuarios') }}">Gerenciar Usuários</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'main_bp.criar_usuario' %}active{% endif %}" aria-current="page" href="{{ url_for('main_bp.criar_usuario') }}">Criar Usuário</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'main_bp.relatorios' %}active{% endif %}" href="{{ url_for('main_bp.relatorios') }}">Relatórios</a>
+                         <a class="nav-link {% if request.endpoint == 'main_bp.gerenciar_disciplinas' %}active{% endif %}" aria-current="page" href="{{ url_for('main_bp.gerenciar_disciplinas') }}">Gerenciar Disciplinas</a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link {% if request.endpoint == 'main_bp.gerenciar_matriculas' %}active{% endif %}" href="{{ url_for('main_bp.gerenciar_matriculas') }}">Matrículas</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'main_bp.auditoria' %}active{% endif %}" href="{{ url_for('main_bp.auditoria') }}">Auditoria</a>
+                         <a class="nav-link {% if request.endpoint == 'main_bp.informacoes_alunos' %}active{% endif %}" aria-current="page" href="{{ url_for('main_bp.informacoes_alunos') }}">Alunos</a>
+                    </li>
+                     <li class="nav-item">
+                         <a class="nav-link {% if request.endpoint == 'main_bp.relatorios' %}active{% endif %}" href="{{ url_for('main_bp.relatorios') }}">Relatórios</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'main_bp.criar_turma' %}active{% endif %}" aria-current="page" href="{{ url_for('main_bp.criar_turma') }}">Criar Turma</a>
+                        <a class="nav-link {% if request.endpoint == 'main_bp.auditoria' %}active{% endif %}" href="{{ url_for('main_bp.auditoria') }}">Auditoria</a>
+                    </li>
+                     <li class="nav-item">
+                         <a class="nav-link {% if request.endpoint == 'main_bp.visualizador_logs' %}active{% endif %}" aria-current="page" href="{{ url_for('main_bp.visualizador_logs') }}">Logs</a>
                     </li>
                 </ul>
-                <ul class="navbar-nav ms-auto">
+                <ul class="navbar-nav ms-auto d-flex align-items-center">
                     <li class="nav-item dropdown">
                         <a class="nav-link" href="#" id="notificationBell" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <span class="position-relative">
@@ -57,9 +60,11 @@
                     <li class="nav-item">
                         <span class="nav-link">Bem-vindo, {{ username }} ({{ user_role }})</span>
                     </li>
+
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('account.mudar_senha') }}">Mudar Senha</a>
+                         <a class="nav-link" href="{{ url_for('account.mudar_senha') }}">Mudar Senha</a>
                     </li>
+
                     <li class="nav-item">
                         <a class="nav-link btn btn-danger text-white" href="{{ url_for('auth.logout') }}">Sair</a>
                     </li>
@@ -122,9 +127,9 @@
                     <h6 class="mt-3">Atribuições Atuais:</h6>
                     <ul id="listaAtribuicoes" class="list-group">
                         {% for atr in atribuicoes_atuais %}
-                        <li class="list-group-item bg-secondary text-white" data-turma-id="{{ atr.turma_id }}" data-disciplina-id="{{ atr.disciplina_id }}" data-ano="{{ atr.ano_letivo }}">
-                            {{ atr.turma }} ({{ atr.turno }}) - <strong>{{ atr.disciplina }}</strong>
-                            <button type="button" class="btn-close btn-sm float-end" aria-label="Remove"></button>
+                        <li class="list-group-item bg-secondary text-white d-flex justify-content-between align-items-center" data-turma-id="{{ atr.turma_id }}" data-disciplina-id="{{ atr.disciplina_id }}" data-ano="{{ atr.ano_letivo }}">
+                            <span>{{ atr.turma }} ({{ atr.turno }}) - <strong>{{ atr.disciplina }}</strong></span>
+                            <button type="button" class="btn-close btn-sm" aria-label="Remove"></button>
                         </li>
                         {% endfor %}
                     </ul>
@@ -146,8 +151,9 @@
             const addAtribuicaoBtn = document.getElementById('addAtribuicao');
             let atribuicoes = [];
 
+            // Função para atualizar o input escondido com os dados da lista
             function atualizarAtribuicoesInput() {
-                atribuicoes = [];
+                const atribuicoes = [];
                 listaAtribuicoes.querySelectorAll('li').forEach(li => {
                     atribuicoes.push({
                         professor_id: "{{ user_a_editar.professor_id }}",
@@ -159,6 +165,7 @@
                 atribuicoesInput.value = JSON.stringify(atribuicoes);
             }
 
+            // Função para remover um item da lista
             function removerAtribuicao(event) {
                 if (event.target.classList.contains('btn-close')) {
                     event.target.parentElement.remove();
@@ -166,13 +173,15 @@
                 }
             }
 
+            // Adicionar nova atribuição à lista
             if (addAtribuicaoBtn) {
                 addAtribuicaoBtn.addEventListener('click', function() {
                     const turmaSelect = document.getElementById('turmaSelect');
                     const disciplinaSelect = document.getElementById('disciplinaSelect');
                     const turmaId = turmaSelect.value;
-                    const turmaTexto = turmaSelect.options[turmaSelect.selectedIndex].text;
-                    const anoLetivo = turmaSelect.options[turmaSelect.selectedIndex].dataset.ano;
+                    const turmaOption = turmaSelect.options[turmaSelect.selectedIndex];
+                    const turmaTexto = turmaOption.text;
+                    const anoLetivo = turmaOption.dataset.ano;
                     const disciplinaId = disciplinaSelect.value;
                     const disciplinaTexto = disciplinaSelect.options[disciplinaSelect.selectedIndex].text;
 
@@ -181,12 +190,14 @@
                         return;
                     }
 
+                    // Cria o novo item da lista
                     const li = document.createElement('li');
-                    li.className = 'list-group-item bg-secondary text-white';
+                    li.className = 'list-group-item bg-secondary text-white d-flex justify-content-between align-items-center';
                     li.dataset.turmaId = turmaId;
                     li.dataset.disciplinaId = disciplinaId;
                     li.dataset.ano = anoLetivo;
-                    li.innerHTML = `${turmaTexto} - <strong>${disciplinaTexto}</strong> <button type="button" class="btn-close btn-sm float-end" aria-label="Remove"></button>`;
+                    li.innerHTML = `<span>${turmaTexto} - <strong>${disciplinaTexto}</strong></span> <button type="button" class="btn-close btn-sm" aria-label="Remove"></button>`;
+
                     listaAtribuicoes.appendChild(li);
 
                     atualizarAtribuicoesInput();
@@ -195,8 +206,10 @@
                 });
             }
 
+            // Adiciona o evento de clique para os botões de remover
             listaAtribuicoes.addEventListener('click', removerAtribuicao);
-            // Inicializa o campo hidden com as atribuições já existentes
+
+            // Inicializa o campo hidden com as atribuições que já existem
             atualizarAtribuicoesInput();
         });
 

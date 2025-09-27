@@ -138,7 +138,11 @@ class ExtractData:
 
         # Tabela de alunos
         from tables.students import Students
-        students, shifts_dict = Students(df, class_columns, self.student_year).create_schema()
+        students_list, shifts_dict = Students(df, class_columns, self.student_year).create_schema()
+
+        students = pd.DataFrame(students_list)
+        students_with_name_index = students.set_index('aluno')
+        aluno_id_map = students_with_name_index['aluno_id'].to_dict()
 
         # Tabela de disciplinas
         from tables.disciplinas import Disciplina
@@ -147,11 +151,11 @@ class ExtractData:
         # Tabela de notas
         from tables.grades import Grades
         grades = Grades(df, disciplines_id, self.student_year, self.disciplines_columns,
-                        self.file_type).create_schema()
+                        self.file_type, aluno_id_map).create_schema()
 
         # Tabela de endereços
         from tables.address import Address
-        address = Address(df).create_schema()
+        address = Address(df, self.student_year, class_columns, aluno_id_map).create_schema()
 
         # Tabela de professores
         from tables.professors import Professors
@@ -159,7 +163,7 @@ class ExtractData:
 
         # Tabela de responsáveis
         from tables.students_guardian import StudentsGuardian
-        students_guardian = StudentsGuardian(df).create_schema()
+        students_guardian = StudentsGuardian(df, aluno_id_map).create_schema()
 
         # Tabela de turmas
         from tables.class_students import ClassStudents
@@ -171,7 +175,7 @@ class ExtractData:
          disciplines_classes,
          professors_disciplines) = IntermediateTables(df, self.disciplines_columns,
                                                       disciplines_id,
-                                                      class_columns, self.student_year, shifts_dict).create_schema()
+                                                      class_columns, self.student_year, shifts_dict, aluno_id_map).create_schema()
 
 
         return (pd.DataFrame(students), pd.DataFrame(disciplines), pd.DataFrame(grades), pd.DataFrame(address),

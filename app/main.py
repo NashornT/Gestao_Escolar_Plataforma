@@ -282,6 +282,12 @@ def criar_usuario():
             new_user.set_password(password)
             session_app.add(new_user)
 
+            if is_student and aluno_id_selecionado:
+                stmt_ativar_aluno = update(aluno_table).where(
+                    aluno_table.c.aluno_id == aluno_id_selecionado
+                ).values(status='Ativo')
+                conn_academic.execute(stmt_ativar_aluno)
+
             if is_professor:
                 if not nome_completo_prof:
                     raise ValueError("O campo 'Nome Completo' é obrigatório para professores.")
@@ -357,25 +363,19 @@ def editar_usuario(user_id):
         flash('Acesso negado.', 'danger')
         return redirect(url_for('main_bp.get_files'))
 
-    # Busca o usuário a ser editado no banco de login
     user_a_editar = User.query.get_or_404(user_id)
-
-    # Prepara a conexão com o banco acadêmico
     academic_engine = db.get_engine(bind='academic')
 
-    # Busca os dados necessários para os formulários
     with academic_engine.connect() as connection:
         turmas = connection.execute(select(turma_table).order_by(turma_table.c.turma, turma_table.c.turno)).all()
         disciplinas = connection.execute(select(disciplina_table).order_by(disciplina_table.c.disciplina)).all()
 
-        # Se for um professor, busca seus dados específicos
         professor_info = None
         atribuicoes_atuais = []
         if user_a_editar.is_professor and user_a_editar.professor_id:
             query_prof = select(professor_table).where(professor_table.c.professor_id == user_a_editar.professor_id)
             professor_info = connection.execute(query_prof).first()
 
-            # Busca as atribuições atuais para exibir na tela
             j = join(professores_turmas_disciplinas_table, turma_table,
                      professores_turmas_disciplinas_table.c.turma_id == turma_table.c.turma_id)
             j = join(j, disciplina_table,
@@ -386,43 +386,44 @@ def editar_usuario(user_id):
             ).select_from(j).where(
                 professores_turmas_disciplinas_table.c.professor_id == user_a_editar.professor_id
             )
-            atribuicoes_atuais = connection.execute(query_atr).all()
+            atribuicoes_atuais = connection.execute(query_atr).mappings().all()
 
     if request.method == 'POST':
-        # Lógica para salvar as alterações
         nome_completo = request.form.get('nome_completo')
         atribuicoes_json = request.form.get('atribuicoes', '[]')
 
-        conn_academic = academic_engine.connect()
-        trans_academic = conn_academic.begin()
-        try:
-            # Atualiza o nome completo na tabela 'professores'
-            stmt_update_prof = update(professor_table).where(
-                professor_table.c.professor_id == user_a_editar.professor_id
-            ).values(nome=nome_completo)
-            conn_academic.execute(stmt_update_prof)
+        with academic_engine.connect() as conn_academic:
+            trans_academic = conn_academic.begin()
+            try:
+                # 1. Atualiza o nome do professor (se houver)
+                if nome_completo:
+                    stmt_update_prof = update(professor_table).where(
+                        professor_table.c.professor_id == user_a_editar.professor_id
+                    ).values(nome=nome_completo)
+                    conn_academic.execute(stmt_update_prof)
 
-            # Exclui todas as atribuições antigas para substituí-las pelas novas
-            stmt_delete_atr = professores_turmas_disciplinas_table.delete().where(
-                professores_turmas_disciplinas_table.c.professor_id == user_a_editar.professor_id
-            )
-            conn_academic.execute(stmt_delete_atr)
+                # 2. Exclui todas as atribuições antigas
+                stmt_delete_atr = delete(professores_turmas_disciplinas_table).where(
+                    professores_turmas_disciplinas_table.c.professor_id == user_a_editar.professor_id
+                )
+                conn_academic.execute(stmt_delete_atr)
 
-            # Insere as novas atribuições
-            import json
-            atribuicoes = json.loads(atribuicoes_json)
-            if atribuicoes:
-                conn_academic.execute(insert(professores_turmas_disciplinas_table), atribuicoes)
+                # 3. Insere as novas atribuições recebidas do formulário
+                atribuicoes = json.loads(atribuicoes_json)
+                if atribuicoes:
+                    # O professor_id não vem do formulário, então adicionamos aqui
+                    for atr in atribuicoes:
+                        atr['professor_id'] = user_a_editar.professor_id
 
-            trans_academic.commit()
-            flash(f'Dados do professor {user_a_editar.username} atualizados com sucesso!', 'success')
-            return redirect(url_for('main_bp.listar_usuarios'))
-        except Exception as e:
-            trans_academic.rollback()
-            logger.error(f"Erro ao editar usuário: {e}", exc_info=True)
-            flash(f'Erro ao editar usuário: {str(e)}', 'danger')
-        finally:
-            conn_academic.close()
+                    conn_academic.execute(insert(professores_turmas_disciplinas_table), atribuicoes)
+
+                trans_academic.commit()
+                flash(f'Dados do professor {user_a_editar.username} atualizados com sucesso!', 'success')
+                return redirect(url_for('main_bp.listar_usuarios'))
+            except Exception as e:
+                trans_academic.rollback()
+                logger.error(f"Erro ao editar usuário: {e}", exc_info=True)
+                flash(f'Erro ao editar usuário: {str(e)}', 'danger')
 
     return render_template(
         'main/editar_usuario.html',
@@ -432,6 +433,7 @@ def editar_usuario(user_id):
         disciplinas=disciplinas,
         atribuicoes_atuais=atribuicoes_atuais
     )
+
 
 
 @main_bp.route('/anuncio/comentar/<int:anuncio_id>', methods=['POST'])
@@ -676,31 +678,31 @@ def api_alunos_por_turma_status():
 
     academic_engine = db.get_engine(bind='academic')
     with academic_engine.connect() as connection:
-        # Alunos já matriculados na turma
+        # Alunos já matriculados na turma (consulta permanece a mesma)
         query_matriculados = select(
             aluno_table.c.aluno_id,
-            aluno_table.c.aluno
+            aluno_table.c.aluno,
+            aluno_table.c.status
         ).join(
             alunos_turma_table, aluno_table.c.aluno_id == alunos_turma_table.c.aluno_id
         ).where(alunos_turma_table.c.turma_id == turma_id).order_by(aluno_table.c.aluno)
         matriculados = connection.execute(query_matriculados).mappings().all()
 
-        # Alunos ainda não matriculados em nenhuma turma
-        query_matriculados_ids = select(alunos_turma_table.c.aluno_id)
-        matriculados_ids = [row.aluno_id for row in connection.execute(query_matriculados_ids).all()]
-
+        j = aluno_table.outerjoin(alunos_turma_table, aluno_table.c.aluno_id == alunos_turma_table.c.aluno_id)
         query_disponiveis = select(
             aluno_table.c.aluno_id,
-            aluno_table.c.aluno
-        ).where(aluno_table.c.aluno_id.notin_(matriculados_ids)).order_by(aluno_table.c.aluno)
-
-        # Correção aqui: Adicione .mappings().all()
+            aluno_table.c.aluno,
+            aluno_table.c.status
+        ).select_from(j).where(
+            alunos_turma_table.c.turma_id == None
+        ).order_by(aluno_table.c.aluno)
         disponiveis = connection.execute(query_disponiveis).mappings().all()
 
     return jsonify({
         'matriculados': [dict(row) for row in matriculados],
         'disponiveis': [dict(row) for row in disponiveis]
     })
+
 
 @main_bp.route('/api/atualizar_matricula', methods=['POST'])
 @login_required
@@ -861,3 +863,180 @@ def api_criar_turma():
             trans.rollback()
             logger.error(f"Erro ao criar turma: {e}", exc_info=True)
             return jsonify({'message': f'Erro no servidor: {e}'}), 500
+
+
+@main_bp.route('/gerenciar_disciplinas')
+@login_required
+def gerenciar_disciplinas():
+    if not current_user.is_admin:
+        flash('Acesso negado.', 'danger')
+        return redirect(url_for('main_bp.get_files'))
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        query = select(disciplina_table).order_by(disciplina_table.c.disciplina)
+        disciplinas = connection.execute(query).mappings().all()
+
+    return render_template(
+        'main/gerenciar_disciplinas.html',
+        disciplinas=disciplinas,
+        username=current_user.username,
+        user_role=current_user.role
+    )
+
+
+@main_bp.route('/api/disciplinas', methods=['POST'])
+@login_required
+def api_criar_disciplina():
+    if not current_user.is_admin:
+        return jsonify({'message': 'Acesso negado.'}), 403
+
+    data = request.get_json()
+    nome_disciplina = data.get('disciplina')
+    if not nome_disciplina:
+        return jsonify({'message': 'O nome da disciplina é obrigatório.'}), 400
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        trans = connection.begin()
+        try:
+            # Encontra o maior disciplina_id existente para criar o próximo
+            max_id = connection.execute(select(func.max(disciplina_table.c.disciplina_id))).scalar() or 0
+            novo_id = max_id + 1
+
+            stmt = insert(disciplina_table).values(
+                disciplina_id=novo_id,
+                disciplina=nome_disciplina,
+                fk_disciplina=novo_id
+            )
+            connection.execute(stmt)
+            trans.commit()
+            log_action('CREATE', 'materias', record_id=novo_id, new_value={'disciplina': nome_disciplina})
+            return jsonify({'message': 'Disciplina criada com sucesso!'}), 201
+        except Exception as e:
+            trans.rollback()
+            return jsonify({'message': f'Erro ao criar disciplina: {e}'}), 500
+
+
+@main_bp.route('/api/disciplinas/<int:disciplina_id>', methods=['PUT', 'DELETE'])
+@login_required
+def api_modificar_disciplina(disciplina_id):
+    if not current_user.is_admin:
+        return jsonify({'message': 'Acesso negado.'}), 403
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        trans = connection.begin()
+        try:
+            if request.method == 'PUT':
+                data = request.get_json()
+                novo_nome = data.get('disciplina')
+                stmt = update(disciplina_table).where(disciplina_table.c.disciplina_id == disciplina_id).values(
+                    disciplina=novo_nome)
+                connection.execute(stmt)
+                message = 'Disciplina atualizada com sucesso!'
+                log_action('UPDATE', 'materias', record_id=disciplina_id, new_value={'disciplina': novo_nome})
+
+            elif request.method == 'DELETE':
+                stmt = delete(disciplina_table).where(disciplina_table.c.disciplina_id == disciplina_id)
+                connection.execute(stmt)
+                message = 'Disciplina excluída com sucesso!'
+                log_action('DELETE', 'materias', record_id=disciplina_id)
+
+            trans.commit()
+            return jsonify({'message': message})
+        except Exception as e:
+            trans.rollback()
+            return jsonify({'message': f'Erro ao processar a solicitação: {e}'}), 500
+
+
+@main_bp.route('/informacoes_alunos')
+@login_required
+def informacoes_alunos():
+    if not current_user.is_admin:
+        flash('Acesso negado.', 'danger')
+        return redirect(url_for('main_bp.get_files'))
+
+    search_term = request.args.get('busca', '')
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        query = select(aluno_table).order_by(aluno_table.c.aluno)
+        if search_term:
+            query = query.where(aluno_table.c.aluno.ilike(f'%{search_term}%'))
+        alunos = connection.execute(query).mappings().all()
+
+    return render_template('main/informacoes_alunos.html',
+                           alunos=alunos,
+                           search_term=search_term,
+                           username=current_user.username,
+                           user_role=current_user.role)
+
+
+@main_bp.route('/api/aluno/<aluno_id>/detalhes')
+@login_required
+def api_aluno_detalhes(aluno_id):
+    if not current_user.is_admin:
+        return jsonify({'error': 'Acesso negado'}), 403
+
+    academic_engine = db.get_engine(bind='academic')
+    with academic_engine.connect() as connection:
+        # Busca dados do aluno
+        aluno_info = connection.execute(
+            select(aluno_table).where(aluno_table.c.aluno_id == aluno_id)).mappings().first()
+        if not aluno_info:
+            return jsonify({'error': 'Aluno não encontrado'}), 404
+
+        # Busca dados da turma
+        turma_info = connection.execute(
+            select(turma_table.c.turma, turma_table.c.turno, turma_table.c.turma_id)
+            .join(alunos_turma_table, turma_table.c.turma_id == alunos_turma_table.c.turma_id)
+            .where(alunos_turma_table.c.aluno_id == aluno_id)
+        ).mappings().first()
+
+        # Busca disciplinas da turma (Query Corrigida)
+        disciplinas = []
+        if turma_info:
+            disciplinas_query = select(disciplina_table.c.disciplina).select_from(
+                disciplina_table.join(professores_turmas_disciplinas_table,
+                                      disciplina_table.c.disciplina_id == professores_turmas_disciplinas_table.c.disciplina_id)
+            ).where(professores_turmas_disciplinas_table.c.turma_id == turma_info.turma_id).order_by(
+                disciplina_table.c.disciplina)
+
+            disciplinas = connection.execute(disciplinas_query).scalars().all()
+
+        detalhes = {
+            "nome": aluno_info.aluno,
+            "status": aluno_info.status,
+            "turma": f"{turma_info.turma} - {turma_info.turno}" if turma_info else "Não matriculado",
+            "disciplinas": disciplinas
+            # Campos de responsável foram removidos
+        }
+        return jsonify(detalhes)
+
+
+@main_bp.route('/visualizador_logs')
+@login_required
+def visualizador_logs():
+    if not current_user.is_admin:
+        flash('Acesso negado.', 'danger')
+        return redirect(url_for('main_bp.get_files'))
+
+    log_content = "Arquivo de log não encontrado."
+    try:
+        log_file_path = os.path.join(current_app.root_path, '..', 'app.log')
+        # --- CORREÇÃO AQUI ---
+        with open(log_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            lines = f.readlines()
+            log_content = "".join(lines[-1000:])
+    except FileNotFoundError:
+        logger.warning("O arquivo app.log não foi encontrado para visualização.")
+    except Exception as e:
+        logger.error(f"Erro ao ler o arquivo de log: {e}", exc_info=True)
+        log_content = f"Erro ao ler o arquivo de log: {e}"
+
+    return render_template(
+        'main/visualizador_logs.html',
+        log_content=log_content,
+        username=current_user.username,
+        user_role=current_user.role
+    )

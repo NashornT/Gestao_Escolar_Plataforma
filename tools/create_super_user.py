@@ -15,7 +15,7 @@ def create_admin(app):
         if not admin_user:
             print("Usuário 'admin' não encontrado, criando...")
 
-            # Cria a nova instância do usuário
+            # Coloque o nome de usuário e senha desejados aqui
             new_admin = User(username='admin', is_admin=True, role='admin')
             new_admin.set_password('senha123')
 

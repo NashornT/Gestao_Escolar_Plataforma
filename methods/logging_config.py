@@ -5,7 +5,7 @@ def setup_logging():
         level=logging.INFO,  # Define o nível mínimo de log
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
-            #logging.FileHandler("app.log"),  # Salva os logs em um arquivo
+            logging.FileHandler("app.log"),  # Salva os logs em um arquivo
             logging.StreamHandler()  # Exibe os logs no console
         ]
     )
