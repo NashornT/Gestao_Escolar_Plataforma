@@ -411,7 +411,6 @@ def editar_usuario(user_id):
                 # 3. Insere as novas atribuições recebidas do formulário
                 atribuicoes = json.loads(atribuicoes_json)
                 if atribuicoes:
-                    # O professor_id não vem do formulário, então adicionamos aqui
                     for atr in atribuicoes:
                         atr['professor_id'] = user_a_editar.professor_id
 
@@ -458,8 +457,6 @@ def comentar_anuncio(anuncio_id):
             )
             conn_academic.execute(stmt_comentario)
             trans_academic.commit()
-
-            # --- LÓGICA DE NOTIFICAÇÃO PARA O PROFESSOR ---
 
             # 2. Busca o professor que é o autor do anúncio original
             query_anuncio = select(anuncio_table.c.professor_id).where(anuncio_table.c.anuncio_id == anuncio_id)
@@ -1024,7 +1021,6 @@ def visualizador_logs():
     log_content = "Arquivo de log não encontrado."
     try:
         log_file_path = os.path.join(current_app.root_path, '..', 'app.log')
-        # --- CORREÇÃO AQUI ---
         with open(log_file_path, 'r', encoding='utf-8', errors='ignore') as f:
             lines = f.readlines()
             log_content = "".join(lines[-1000:])

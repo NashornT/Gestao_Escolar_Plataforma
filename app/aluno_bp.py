@@ -43,7 +43,6 @@ def painel():
             ).select_from(j_turma).where(aluno_table.c.aluno_id == aluno_id_logado)
             info_aluno = connection.execute(query_info).first()
 
-            # ===== INÍCIO DA CORREÇÃO =====
             # 2. Se o aluno pertence a uma turma, busca os materiais correspondentes
             if info_aluno and info_aluno.turma_id:
                 j_materiais = join(material_aula_table, disciplina_table,
@@ -60,7 +59,6 @@ def painel():
                 ).order_by(desc(material_aula_table.c.data_upload))
 
                 materiais_turma = connection.execute(query_materiais).all()
-            # ===== FIM DA CORREÇÃO =====
 
             # 3. Busca os anúncios (lógica existente)
             j_anuncios = join(anuncio_table, professor_table,
