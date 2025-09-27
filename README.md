@@ -48,7 +48,7 @@ O sistema utiliza SQLAlchemy para a interação com o banco de dados MySQL e Fla
 
 ### 1. Clone o Repositório
 ```bash
-git clone <URL_DO_SEU_REPOSITORIO>
+git clone <https://github.com/NashornT/Gestao_Escolar_Plataforma.git>
 cd ETL_Excel
 ```
 
