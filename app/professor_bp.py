@@ -162,14 +162,14 @@ def api_atualizar_dados():
                     continue
 
                 old_values = {
-                    "nota_1_bimestre_final": registro_atual.get('nota_1_bimestre_final'),
-                    "nota_2_bimestre_final": registro_atual.get('nota_2_bimestre_final'),
-                    "nota_3_bimestre_final": registro_atual.get('nota_3_bimestre_final'),
-                    "nota_4_bimestre_final": registro_atual.get('nota_4_bimestre_final'),
-                    "total_faltas": registro_atual.get('total_faltas')
+                    "nota_1_bimestre_final": registro_atual.nota_1_bimestre_final,
+                    "nota_2_bimestre_final": registro_atual.nota_2_bimestre_final,
+                    "nota_3_bimestre_final": registro_atual.nota_3_bimestre_final,
+                    "nota_4_bimestre_final": registro_atual.nota_4_bimestre_final,
+                    "total_faltas": registro_atual.total_faltas
                 }
 
-                valores_finais = dict(registro_atual)
+                valores_finais = dict(registro_atual._mapping)
 
                 for campo, valor_str in campos_para_atualizar.items():
                     valor = None
